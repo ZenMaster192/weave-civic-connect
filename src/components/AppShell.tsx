@@ -3,8 +3,11 @@ import { ReactNode } from "react";
 import { WeaveLogo } from "@/components/WeaveLogo";
 import { Button } from "@/components/ui/button";
 import { Bell, LogOut, LayoutDashboard, PlusCircle, ListChecks, Map, Users, Trophy, ShieldCheck } from "lucide-react";
-import { clearSession, getSession, Role } from "@/lib/mockData";
+import { useAuthStore } from "@/store/AuthStore";
 import { cn } from "@/lib/utils";
+import type { UserRole } from "@/services/api";
+
+type Role = UserRole;
 
 const NAV: Record<Role, { to: string; label: string; icon: any }[]> = {
   citizen: [
@@ -26,12 +29,15 @@ const NAV: Record<Role, { to: string; label: string; icon: any }[]> = {
 };
 
 export default function AppShell({ children, role }: { children: ReactNode; role: Role }) {
-  const session = getSession();
+  const { token, profile, logout } = useAuthStore();
   const nav = useNavigate();
   const loc = useLocation();
   const items = NAV[role];
 
-  const logout = () => { clearSession(); nav("/"); };
+  const displayName = profile?.full_name ?? token?.full_name ?? "Guest";
+  const orgName = profile?.org_name ?? null;
+
+  const handleLogout = () => { logout(); nav("/"); };
 
   return (
     <div className="min-h-screen flex w-full bg-background">
@@ -61,7 +67,7 @@ export default function AppShell({ children, role }: { children: ReactNode; role
           })}
         </nav>
         <div className="p-3 border-t border-sidebar-border">
-          <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={logout}>
+          <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={handleLogout}>
             <LogOut className="w-4 h-4" /> Sign out
           </Button>
         </div>
@@ -72,8 +78,8 @@ export default function AppShell({ children, role }: { children: ReactNode; role
           <div>
             <p className="text-xs uppercase tracking-widest text-muted-foreground">Welcome back</p>
             <h2 className="font-display text-xl font-semibold leading-tight">
-              {session?.name || "Guest"}
-              {role === "ngo" && session?.org ? <span className="text-muted-foreground font-sans text-base font-normal"> · {session.org}</span> : null}
+              {displayName}
+              {role === "ngo" && orgName ? <span className="text-muted-foreground font-sans text-base font-normal"> · {orgName}</span> : null}
             </h2>
           </div>
           <div className="flex items-center gap-3">
@@ -82,7 +88,7 @@ export default function AppShell({ children, role }: { children: ReactNode; role
               <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-accent" />
             </Button>
             <div className="w-9 h-9 rounded-full bg-gradient-accent flex items-center justify-center text-sm font-semibold">
-              {session?.name?.[0]?.toUpperCase() || "?"}
+              {displayName[0]?.toUpperCase() ?? "?"}
             </div>
           </div>
         </header>

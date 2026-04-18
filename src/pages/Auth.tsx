@@ -9,9 +9,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { WeaveLogo } from "@/components/WeaveLogo";
-import { setSession, SKILLS, Role } from "@/lib/mockData";
+import { SKILLS } from "@/lib/mockData"; // keep SKILLS constant only
 import { ArrowLeft, ShieldCheck, Mail, Phone, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { useMutation } from "@tanstack/react-query";
+import { authApi, usersApi, type UserRole } from "@/services/api";
+import { useAuthStore } from "@/store/AuthStore";
+
+type Role = UserRole;
 
 const ROLE_META: Record<Role, { title: string; devanagari: string; bg: string; tagline: string }> = {
   citizen: { title: "Citizen", devanagari: "नागरिक", bg: "bg-gradient-citizen", tagline: "Report. Track. Resolve." },
@@ -25,57 +30,86 @@ export default function Auth() {
   const r: Role = (role as Role) || "citizen";
   const meta = ROLE_META[r];
 
+  const { setAuth, setProfile } = useAuthStore();
+
   const [step, setStep] = useState<"form" | "otp" | "id">("form");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [skills, setSkills] = useState<string[]>([]);
   const [orgName, setOrgName] = useState("");
+  const [city, setCity] = useState("");
 
   const toggleSkill = (s: string) =>
     setSkills((prev) => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
 
+  // ── Mutations ────────────────────────────────────────────────
+  const registerMutation = useMutation({
+    mutationFn: () =>
+      authApi.register({
+        email,
+        password,
+        full_name: name,
+        role: r,
+        skills: skills.length ? skills.join(",") : undefined,
+        org_name: orgName || undefined,
+        city: city || undefined,
+      }),
+    onSuccess: (token) => {
+      setAuth(token);
+      // Proceed to OTP step (simulated — backend doesn't do OTP yet)
+      if (r === "ngo") {
+        toast.success("Account created. Pending NGO approval.");
+        nav("/ngo");
+      } else {
+        setStep("otp");
+        toast.success("Account created! (OTP step is a UI stub)");
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const loginMutation = useMutation({
+    mutationFn: () => authApi.login(loginEmail, loginPassword),
+    onSuccess: async (token) => {
+      setAuth(token);
+      try {
+        const profile = await usersApi.me();
+        setProfile(profile);
+      } catch (_) {}
+      toast.success("Signed in as " + token.full_name);
+      nav("/" + token.role);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Handlers ─────────────────────────────────────────────────
   const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email) return toast.error("Name and email are required");
+    if (!name || !email || !password) return toast.error("Name, email and password are required");
     if (r === "volunteer" && skills.length === 0) return toast.error("Pick at least one skill");
     if (r === "ngo" && !orgName) return toast.error("Organization name is required");
-    setStep("otp");
-    toast.success("OTP sent to " + email + " (demo: use 123456)");
+    registerMutation.mutate();
   };
 
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginEmail || !loginPassword) return toast.error("Email and password are required");
+    loginMutation.mutate();
+  };
+
+  // OTP + ID steps are UI stubs; on completion just navigate
   const handleOtp = (e: React.FormEvent) => {
     e.preventDefault();
-    if (r === "ngo") {
-      // NGO requires manual approval, skip ID for the org & show pending state
-      setSession({ name, role: "ngo", email, org: orgName });
-      toast.success("Submitted for review. Logging you in for the demo.");
-      return nav("/ngo");
-    }
     setStep("id");
   };
 
   const handleId = (e: React.FormEvent) => {
     e.preventDefault();
-    setSession({
-      name, role: r, email,
-      tier: "Seed", xp: 0,
-    });
-    toast.success("Identity stub stored (hashed). Welcome to Weave!");
+    toast.success("Identity stub stored. Welcome to Weave!");
     nav(r === "volunteer" ? "/volunteer" : "/citizen");
-  };
-
-  const quickFill = (mode: "login" | "signup") => {
-    if (mode === "login") {
-      const presets: Record<Role, { name: string; email: string; org?: string }> = {
-        citizen: { name: "Anjali Mehta", email: "anjali@example.com" },
-        volunteer: { name: "Ravi Kumar", email: "ravi@example.com" },
-        ngo: { name: "Sara Khan", email: "sara@greenpune.org", org: "Green Pune Collective" },
-      };
-      const p = presets[r];
-      setSession({ ...p, role: r, tier: "Catalyst", xp: 1240 });
-      toast.success("Signed in as demo " + meta.title);
-      nav("/" + r);
-    }
   };
 
   return (
@@ -130,8 +164,8 @@ export default function Auth() {
                       )}
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <Label>Place</Label>
-                          <Input placeholder="Pune" />
+                          <Label>City</Label>
+                          <Input placeholder="Pune" value={city} onChange={(e) => setCity(e.target.value)} />
                         </div>
                         <div>
                           <Label>Age</Label>
@@ -148,7 +182,7 @@ export default function Auth() {
                       </div>
                       <div>
                         <Label htmlFor="pw">Password</Label>
-                        <Input id="pw" type="password" placeholder="••••••••" />
+                        <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
                       </div>
 
                       {r === "volunteer" && (
@@ -198,25 +232,27 @@ export default function Auth() {
                         </>
                       )}
 
-                      <Button type="submit" className="w-full" size="lg">
-                        Continue · email OTP <Mail className="w-4 h-4 ml-1" />
+                      <Button type="submit" className="w-full" size="lg" disabled={registerMutation.isPending}>
+                        {registerMutation.isPending ? "Creating account…" : <>Continue · email OTP <Mail className="w-4 h-4 ml-1" /></>}
                       </Button>
                     </form>
                   </TabsContent>
 
                   <TabsContent value="login">
-                    <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); quickFill("login"); }}>
+                    <form className="space-y-4" onSubmit={handleLogin}>
                       <div>
                         <Label>Email</Label>
-                        <Input type="email" placeholder="you@example.com" />
+                        <Input type="email" placeholder="you@example.com" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} />
                       </div>
                       <div>
                         <Label>Password</Label>
-                        <Input type="password" placeholder="••••••••" />
+                        <Input type="password" placeholder="••••••••" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} />
                       </div>
-                      <Button className="w-full" size="lg">Sign in as demo {meta.title}</Button>
+                      <Button className="w-full" size="lg" disabled={loginMutation.isPending}>
+                        {loginMutation.isPending ? "Signing in…" : `Sign in as ${meta.title}`}
+                      </Button>
                       <p className="text-xs text-center text-muted-foreground">
-                        Prototype mode — uses a preset {meta.title} account.
+                        Seeded demo: anjali@example.com / ravi@example.com / sara@greenpune.org — password: password123
                       </p>
                     </form>
                   </TabsContent>

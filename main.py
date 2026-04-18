@@ -179,20 +179,165 @@ class IssueORM(Base):
 # Create all tables
 Base.metadata.create_all(bind=engine)
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def hash_password(plain: str) -> str:
+    return pwd_context.hash(plain)
+
+# ─────────────────────────────────────────────────────────────
+# FastAPI app + CORS
+# ─────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="Weave Civic Connect API",
+    version="1.0.0",
+    description="Tri-interface civic problem reporting and resolution platform.",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",    # Vite dev server
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+
+
+# ─────────────────────────────────────────────────────────────
+# Startup seed
+# ─────────────────────────────────────────────────────────────
+
+def seed_database():
+    db = SessionLocal()
+    try:
+        if db.query(UserORM).count() > 0:
+            return  # Already seeded
+
+        # ── Users ────────────────────────────────────────────
+        citizen1 = UserORM(
+            email="anjali@example.com",
+            hashed_password=hash_password("password123"),
+            full_name="Anjali Mehta",
+            role=UserRole.CITIZEN,
+            latitude=18.5204, longitude=73.8567, city="Pune",
+        )
+        citizen2 = UserORM(
+            email="rahul@example.com",
+            hashed_password=hash_password("password123"),
+            full_name="Rahul Bose",
+            role=UserRole.CITIZEN,
+            latitude=18.4810, longitude=73.8533, city="Pune",
+        )
+        volunteer1 = UserORM(
+            email="ravi@example.com",
+            hashed_password=hash_password("password123"),
+            full_name="Ravi Kumar",
+            role=UserRole.VOLUNTEER,
+            skills="Waste Management,Sanitation,Community Outreach",
+            bio="Field lead with 3 years of civic volunteering.",
+            total_resolved=12,
+            latitude=18.5204, longitude=73.8567, city="Pune",
+        )
+        volunteer2 = UserORM(
+            email="priya@example.com",
+            hashed_password=hash_password("password123"),
+            full_name="Priya Shah",
+            role=UserRole.VOLUNTEER,
+            skills="Road Repair,Construction",
+            total_resolved=8,
+            latitude=18.5362, longitude=73.8939, city="Pune",
+        )
+        ngo1 = UserORM(
+            email="sara@greenpune.org",
+            hashed_password=hash_password("password123"),
+            full_name="Sara Khan",
+            role=UserRole.NGO,
+            org_name="Green Pune Collective",
+            ngo_status=NGOStatus.APPROVED,
+            latitude=18.5204, longitude=73.8567, city="Pune",
+        )
+        db.add_all([citizen1, citizen2, volunteer1, volunteer2, ngo1])
+        db.flush()  # get IDs without commit
+
+        # ── Issues ───────────────────────────────────────────
+        issues = [
+            IssueORM(
+                title="Overflowing garbage near market",
+                description="Pile of garbage uncleared for 4 days, attracting stray dogs.",
+                category="Sanitation",
+                required_skills="Waste Management,Sanitation",
+                latitude=18.5204, longitude=73.8567,
+                address="MG Road Market", city="Pune",
+                status=IssueStatus.IN_PROGRESS,
+                reporter_id=citizen1.id,
+                resolver_id=volunteer1.id,
+            ),
+            IssueORM(
+                title="Broken streetlight on Lane 4",
+                description="Streetlight has been out for 2 weeks, road is unsafe at night.",
+                category="Electrical",
+                required_skills="Electrical",
+                latitude=18.5362, longitude=73.8939,
+                address="Koregaon Park Lane 4", city="Pune",
+                status=IssueStatus.OPEN,
+                reporter_id=citizen1.id,
+            ),
+            IssueORM(
+                title="Pothole near school entrance",
+                description="Large pothole causing daily accidents to scooter riders.",
+                category="Road Repair",
+                required_skills="Road Repair,Construction",
+                latitude=18.5590, longitude=73.8076,
+                address="Aundh Main Rd", city="Pune",
+                status=IssueStatus.RESOLVED,
+                reporter_id=citizen1.id,
+                resolver_id=volunteer2.id,
+                resolved_at=datetime.now(timezone.utc),
+            ),
+            IssueORM(
+                title="Stray dog injured near park",
+                description="Limping dog needs urgent rescue and vet care.",
+                category="Animal Rescue",
+                required_skills="Animal Rescue,Healthcare",
+                latitude=18.4810, longitude=73.8533,
+                address="Sahakar Nagar Park", city="Pune",
+                status=IssueStatus.OPEN,
+                reporter_id=citizen2.id,
+                assigned_ngo_id=ngo1.id,
+            ),
+        ]
+        db.add_all(issues)
+        db.commit()
+        print("[Weave] Database seeded with demo data.")
+    except Exception as e:
+        db.rollback()
+        print(f"[Weave] Seed failed: {e}")
+    finally:
+        db.close()
+
+
+@app.on_event("startup")
+def on_startup():
+    seed_database()
+
 # ─────────────────────────────────────────────────────────────
 # Auth utilities
 # ─────────────────────────────────────────────────────────────
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
-
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -349,32 +494,6 @@ class NGOMemberStats(BaseModel):
     volunteer_name: str
     total_resolved: int
     skills: Optional[str] = None
-
-
-# ─────────────────────────────────────────────────────────────
-# FastAPI app + CORS
-# ─────────────────────────────────────────────────────────────
-
-app = FastAPI(
-    title="Weave Civic Connect API",
-    version="1.0.0",
-    description="Tri-interface civic problem reporting and resolution platform.",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",    # Vite dev server
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -544,9 +663,9 @@ def create_issue(body: IssueCreate, current_user: CurrentUser, db: DB):
 @app.post("/api/issues/{issue_id}/image", response_model=IssueResponse, tags=["Issues"])
 async def upload_issue_image(
     issue_id: int,
+    db: DB,
+    current_user: CurrentUser,
     file: UploadFile = File(...),
-    current_user: CurrentUser = Depends(get_current_user),
-    db: DB = Depends(get_db),
 ):
     """Upload a photo/document alongside an issue (reporter only)."""
     issue = db.query(IssueORM).filter(IssueORM.id == issue_id).first()
@@ -632,9 +751,9 @@ def claim_issue(issue_id: int, current_user: CurrentUser, db: DB):
 @app.patch("/api/issues/{issue_id}/resolve", response_model=IssueResponse, tags=["Issues"])
 async def resolve_issue(
     issue_id: int,
+    db: DB,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
     proof: Optional[UploadFile] = File(None),
-    current_user: CurrentUser = Depends(get_current_user),
-    db: DB = Depends(get_db),
 ):
     """
     Volunteer marks an issue as resolved and optionally uploads proof (photo/doc).

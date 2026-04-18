@@ -2,15 +2,26 @@ import AppShell from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MOCK_ISSUES } from "@/lib/mockData";
 import { Link } from "react-router-dom";
 import { PlusCircle, AlertCircle, CheckCircle2, Clock, Bell } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { issuesApi, type Issue } from "@/services/api";
+import { useAuthStore } from "@/store/AuthStore";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function CitizenDashboard() {
+  const { token } = useAuthStore();
+
+  const { data: issues = [], isLoading } = useQuery<Issue[]>({
+    queryKey: ["issues", "citizen", token?.user_id],
+    queryFn: () => issuesApi.list({ reporter_id: token?.user_id }),
+    enabled: !!token?.user_id,
+  });
+
   const stats = [
-    { label: "Open issues", value: MOCK_ISSUES.filter(i => i.status !== "resolved").length, icon: AlertCircle, tint: "bg-pastel-pink" },
-    { label: "Resolved", value: MOCK_ISSUES.filter(i => i.status === "resolved").length, icon: CheckCircle2, tint: "bg-pastel-green" },
-    { label: "In progress", value: MOCK_ISSUES.filter(i => i.status === "in_progress").length, icon: Clock, tint: "bg-pastel-blue" },
+    { label: "Open issues", value: issues.filter(i => i.status !== "resolved").length, icon: AlertCircle, tint: "bg-pastel-pink" },
+    { label: "Resolved", value: issues.filter(i => i.status === "resolved").length, icon: CheckCircle2, tint: "bg-pastel-green" },
+    { label: "In progress", value: issues.filter(i => i.status === "in_progress").length, icon: Clock, tint: "bg-pastel-blue" },
   ];
 
   return (
@@ -47,16 +58,24 @@ export default function CitizenDashboard() {
               <Link to="/citizen/activity" className="text-sm text-primary hover:underline">View all →</Link>
             </div>
             <div className="space-y-3">
-              {MOCK_ISSUES.slice(0, 3).map(i => (
-                <Card key={i.id} className="p-4 flex gap-4 items-center soft-card border-0">
-                  <img src={i.beforeImage} alt={i.title} className="w-16 h-16 rounded-xl object-cover" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{i.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">{i.location}</p>
-                  </div>
-                  <Badge variant={i.status === "resolved" ? "default" : "secondary"} className="capitalize">{i.status.replace("_", " ")}</Badge>
-                </Card>
-              ))}
+              {isLoading
+                ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+                : issues.slice(0, 3).map(i => (
+                  <Card key={i.id} className="p-4 flex gap-4 items-center soft-card border-0">
+                    {i.image_url
+                      ? <img src={i.image_url} alt={i.title} className="w-16 h-16 rounded-xl object-cover" />
+                      : <div className="w-16 h-16 rounded-xl bg-muted flex items-center justify-center text-xs text-muted-foreground">{i.category}</div>
+                    }
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{i.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">{i.address || i.city}</p>
+                    </div>
+                    <Badge variant={i.status === "resolved" ? "default" : "secondary"} className="capitalize">
+                      {i.status.replace("_", " ")}
+                    </Badge>
+                  </Card>
+                ))
+              }
             </div>
           </div>
         </div>
@@ -67,8 +86,8 @@ export default function CitizenDashboard() {
             <h3 className="font-display text-xl">Notifications</h3>
           </div>
           {[
-            { t: "Volunteer assigned", d: "Ravi Kumar will look at your garbage issue.", c: "bg-pastel-green" },
-            { t: "Issue resolved", d: "Pothole near school has been fixed.", c: "bg-pastel-blue" },
+            { t: "Volunteer assigned", d: "A volunteer picked up your issue.", c: "bg-pastel-green" },
+            { t: "Issue resolved", d: "One of your issues has been fixed.", c: "bg-pastel-blue" },
             { t: "Update", d: "Your streetlight issue is awaiting a volunteer.", c: "bg-pastel-pink" },
           ].map((n, i) => (
             <Link to="/citizen/activity" key={i}>
