@@ -1,105 +1,125 @@
+@import url('https://fonts.googleapis.com/css2?family=Karma:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+@import 'leaflet/dist/leaflet.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Weave design system — pastel-civic, Devanagari-vibe serif headers + Inter UI */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 40 38% 97%;
+    --foreground: 140 30% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 140 30% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 140 30% 12%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Brand: Dark Green */
+    --primary: 110 55% 26%;
+    --primary-foreground: 40 38% 97%;
+    --primary-glow: 110 45% 42%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Pastel green secondary */
+    --secondary: 130 45% 90%;
+    --secondary-foreground: 110 55% 22%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 40 30% 93%;
+    --muted-foreground: 140 12% 38%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Brand: Yellowish accent */
+    --accent: 44 92% 49%;
+    --accent-foreground: 140 30% 12%;
+    --accent-soft: 38 100% 76%; /* Flesh pastel yellow */
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Pastel pink + blue support */
+    --pastel-pink: 350 80% 92%;
+    --pastel-blue: 205 75% 90%;
+    --pastel-green: 130 50% 88%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 40 38% 97%;
 
-    --radius: 0.5rem;
+    --border: 130 20% 86%;
+    --input: 130 20% 88%;
+    --ring: 110 55% 35%;
 
-    --sidebar-background: 0 0% 98%;
+    --radius: 0.9rem;
 
-    --sidebar-foreground: 240 5.3% 26.1%;
+    --gradient-hero: linear-gradient(135deg, hsl(var(--pastel-green)) 0%, hsl(var(--pastel-blue)) 50%, hsl(var(--pastel-pink)) 100%);
+    --gradient-citizen: linear-gradient(160deg, hsl(var(--pastel-blue)), hsl(205 80% 96%));
+    --gradient-volunteer: linear-gradient(160deg, hsl(var(--pastel-green)), hsl(130 60% 96%));
+    --gradient-ngo: linear-gradient(160deg, hsl(var(--pastel-pink)), hsl(38 100% 94%));
+    --gradient-accent: linear-gradient(135deg, hsl(var(--accent)), hsl(var(--accent-soft)));
 
-    --sidebar-primary: 240 5.9% 10%;
+    --shadow-soft: 0 4px 20px -8px hsl(140 30% 20% / 0.12);
+    --shadow-card: 0 8px 30px -12px hsl(140 30% 20% / 0.18);
+    --shadow-glow: 0 10px 40px -10px hsl(var(--primary) / 0.35);
 
-    --sidebar-primary-foreground: 0 0% 98%;
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-background: 40 38% 98%;
+    --sidebar-foreground: 140 25% 20%;
+    --sidebar-primary: 110 55% 26%;
+    --sidebar-primary-foreground: 40 38% 97%;
+    --sidebar-accent: 130 45% 92%;
+    --sidebar-accent-foreground: 110 55% 22%;
+    --sidebar-border: 130 20% 86%;
+    --sidebar-ring: 110 55% 35%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --background: 140 25% 8%;
+    --foreground: 40 30% 94%;
+    --card: 140 22% 12%;
+    --card-foreground: 40 30% 94%;
+    --popover: 140 22% 12%;
+    --popover-foreground: 40 30% 94%;
+    --primary: 110 45% 55%;
+    --primary-foreground: 140 30% 10%;
+    --secondary: 140 20% 18%;
+    --secondary-foreground: 40 30% 94%;
+    --muted: 140 18% 16%;
+    --muted-foreground: 40 12% 65%;
+    --accent: 44 92% 55%;
+    --accent-foreground: 140 30% 10%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 40 30% 94%;
+    --border: 140 18% 20%;
+    --input: 140 18% 20%;
+    --ring: 110 45% 55%;
+    --sidebar-background: 140 25% 10%;
+    --sidebar-foreground: 40 30% 94%;
+    --sidebar-primary: 110 45% 55%;
+    --sidebar-primary-foreground: 140 30% 10%;
+    --sidebar-accent: 140 20% 16%;
+    --sidebar-accent-foreground: 40 30% 94%;
+    --sidebar-border: 140 18% 20%;
+    --sidebar-ring: 110 45% 55%;
   }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-
+  * { @apply border-border; }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "ss01", "cv01";
   }
+  h1, h2, h3, h4, .font-display { font-family: 'Karma', serif; letter-spacing: -0.01em; }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-sm border border-border/60 rounded-2xl;
+    box-shadow: var(--shadow-card);
+  }
+  .soft-card {
+    @apply bg-card border border-border/60 rounded-2xl;
+    box-shadow: var(--shadow-soft);
+    transition: var(--transition-smooth);
+  }
+  .soft-card:hover { box-shadow: var(--shadow-card); transform: translateY(-2px); }
 }
