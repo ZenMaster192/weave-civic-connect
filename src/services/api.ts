@@ -2,6 +2,8 @@
 // Centralized API connector for Weave Civic Connect
 // All calls go through the weaveApi object; auth token is injected automatically.
 
+// ── With Vite proxy configured, use relative paths in dev.
+// In production, set VITE_API_URL to your deployed backend URL.
 const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -16,6 +18,7 @@ export interface AuthToken {
   role: UserRole;
   full_name: string;
   email: string;
+  is_email_verified?: boolean;
 }
 
 export interface UserProfile {
@@ -24,6 +27,7 @@ export interface UserProfile {
   email: string;
   full_name: string;
   role: UserRole;
+  is_email_verified: boolean;
   skills?: string;
   bio?: string;
   org_name?: string;
@@ -109,7 +113,7 @@ async function request<T>(
   authenticated = true
 ): Promise<T> {
   const headers: Record<string, string> = {
-    ...(options.body instanceof FormData
+    ...(options.body instanceof FormData || options.body instanceof URLSearchParams
       ? {}
       : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
@@ -147,22 +151,50 @@ export const authApi = {
     longitude?: number;
     city?: string;
   }) =>
-    request<AuthToken>("/api/auth/register", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }, false),
+    request<AuthToken>(
+      "/api/auth/register",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+      false
+    ),
 
   login: (email: string, password: string) => {
     // OAuth2PasswordRequestForm expects form-encoded body
     const form = new URLSearchParams();
     form.append("username", email);
     form.append("password", password);
-    return request<AuthToken>("/api/auth/token", {
-      method: "POST",
-      body: form.toString(),
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    }, false);
+    return request<AuthToken>(
+      "/api/auth/token",
+      {
+        method: "POST",
+        body: form,
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      },
+      false
+    );
   },
+
+  verifyEmail: (email: string, otp: string) =>
+    request<{ detail: string }>(
+      "/api/auth/verify-email",
+      {
+        method: "POST",
+        body: JSON.stringify({ email, otp }),
+      },
+      false
+    ),
+
+  resendOtp: (email: string) =>
+    request<{ detail: string }>(
+      "/api/auth/resend-otp",
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      },
+      false
+    ),
 };
 
 // ── Users ──────────────────────────────────────────────────────────────
@@ -170,7 +202,20 @@ export const authApi = {
 export const usersApi = {
   me: () => request<UserProfile>("/api/users/me"),
 
-  updateMe: (data: Partial<Pick<UserProfile, "full_name" | "bio" | "skills" | "latitude" | "longitude" | "city">>) =>
+  updateMe: (
+    data: Partial<
+      Pick<
+        UserProfile,
+        | "full_name"
+        | "bio"
+        | "skills"
+        | "latitude"
+        | "longitude"
+        | "city"
+        | "org_name"
+      >
+    >
+  ) =>
     request<UserProfile>("/api/users/me", {
       method: "PATCH",
       body: JSON.stringify(data),
