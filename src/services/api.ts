@@ -2,7 +2,7 @@
 // Centralized API connector for Weave Civic Connect
 // All calls go through the weaveApi object; auth token is injected automatically.
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const BASE_URL = import.meta.env.VITE_API_URL ?? "";
 
 // ── Types ──────────────────────────────────────────────────────────────
 

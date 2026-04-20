@@ -1,19 +1,15 @@
-"""
-Weave Civic Connect — FastAPI Backend  (main.py)
-=================================================
-Tri-interface platform: Citizens report issues, Volunteers resolve them, NGOs coordinate.
-
-Setup & Run:
-    pip install "fastapi[standard]" sqlalchemy "passlib[bcrypt]" "python-jose[cryptography]" python-multipart
-    uvicorn main:app --reload --port 8000
-"""
-
 from __future__ import annotations
 
 import math
 import os
+import random
+import smtplib
+import string
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from enum import Enum
 from typing import Annotated, Optional
 
@@ -29,7 +25,8 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
-from jose import JWTError, jwt
+from jwt import encode, decode
+from jwt.exceptions import DecodeError as JWTError
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy import (
@@ -57,6 +54,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./weave.db")
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# ── Email config ─────────────────────────────────────────────
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Weave")
+EMAIL_ENABLED = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
+
+OTP_EXPIRE_MINUTES = int(os.getenv("OTP_EXPIRE_MINUTES", "10"))
+
+# ── CORS config ──────────────────────────────────────────────
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+if _raw_origins.strip():
+    ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    ALLOW_ORIGIN_REGEX: str | None = None
+else:
+    ALLOWED_ORIGINS = []
+    ALLOW_ORIGIN_REGEX = r"http://(localhost|127\.0\.0\.1)(:\d+)?"
 
 # ─────────────────────────────────────────────────────────────
 # Database setup
@@ -111,19 +127,17 @@ class UserORM(Base):
     full_name = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default=UserRole.CITIZEN)
     is_active = Column(Boolean, default=True)
+    is_email_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # Volunteer-specific
-    skills = Column(Text, nullable=True)   # comma-separated skill tags
+    skills = Column(Text, nullable=True)
     bio = Column(Text, nullable=True)
     total_resolved = Column(Integer, default=0)
 
-    # NGO-specific
     org_name = Column(String(255), nullable=True)
     ngo_status = Column(String(20), nullable=True)
     ngo_document_url = Column(String(512), nullable=True)
 
-    # Location
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     city = Column(String(100), nullable=True)
@@ -136,6 +150,18 @@ class UserORM(Base):
     )
 
 
+class EmailOTPORM(Base):
+    __tablename__ = "email_otps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    otp_hash = Column(String(255), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class IssueORM(Base):
     __tablename__ = "issues"
 
@@ -143,20 +169,17 @@ class IssueORM(Base):
     uid = Column(String(36), unique=True, default=lambda: str(uuid.uuid4()))
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
-    category = Column(String(100), nullable=False)   # e.g. "road", "water", "electricity"
+    category = Column(String(100), nullable=False)
     status = Column(String(20), default=IssueStatus.OPEN)
 
-    # Geolocation
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     address = Column(String(512), nullable=True)
     city = Column(String(100), nullable=True)
 
-    # Media
     image_url = Column(String(512), nullable=True)
-    proof_url = Column(String(512), nullable=True)   # uploaded by volunteer on resolve
+    proof_url = Column(String(512), nullable=True)
 
-    # Foreign keys
     reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     resolver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     assigned_ngo_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -171,17 +194,25 @@ class IssueORM(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
     resolved_at = Column(DateTime, nullable=True)
-
-    # Tags for skill matching (comma-separated)
     required_skills = Column(Text, nullable=True)
 
 
-# Create all tables
 Base.metadata.create_all(bind=engine)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
+
 def hash_password(plain: str) -> str:
     return pwd_context.hash(plain)
+
+
+def hash_otp(otp: str) -> str:
+    return pwd_context.hash(otp)
+
+
+def verify_otp(plain_otp: str, hashed_otp: str) -> bool:
+    return pwd_context.verify(plain_otp, hashed_otp)
+
 
 # ─────────────────────────────────────────────────────────────
 # FastAPI app + CORS
@@ -195,12 +226,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",    # Vite dev server
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOW_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -209,23 +236,99 @@ app.add_middleware(
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
+# ─────────────────────────────────────────────────────────────
+# Email utilities
+# ─────────────────────────────────────────────────────────────
+
+
+def generate_otp() -> str:
+    return "".join(random.choices(string.digits, k=6))
+
+
+def send_verification_email(to_email: str, full_name: str, otp: str) -> None:
+    if not EMAIL_ENABLED:
+        # Force flush so it always appears in uvicorn terminal immediately
+        print("\n" + "=" * 60, flush=True)
+        print(f"[Weave DEV] OTP for {to_email}", flush=True)
+        print(f"  >>> OTP CODE: {otp} <<<  (valid for {OTP_EXPIRE_MINUTES} min)", flush=True)
+        print("=" * 60 + "\n", flush=True)
+        sys.stdout.flush()
+        return
+
+    if not SMTP_USER or not SMTP_PASSWORD:
+        print(f"[Weave] WARN: SMTP not configured. OTP for {to_email}: {otp}", flush=True)
+        return
+
+    subject = "Your Weave verification code"
+    html_body = f"""
+    <div style="font-family: 'Segoe UI', sans-serif; max-width: 520px; margin: 0 auto;">
+        <h1>Welcome to <span style="color: #4f46e5;">Weave</span></h1>
+        <p>Hi {full_name}, your verification code is:</p>
+        <div style="background: #111; border-radius: 10px; padding: 24px; text-align: center;">
+            <span style="font-family: monospace; font-size: 40px; font-weight: 800; letter-spacing: 12px; color: #fff;">
+                {otp}
+            </span>
+        </div>
+        <p>Expires in {OTP_EXPIRE_MINUTES} minutes.</p>
+    </div>
+    """
+    text_body = f"Hi {full_name},\n\nYour Weave verification code is: {otp}\n\nExpires in {OTP_EXPIRE_MINUTES} minutes."
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, to_email, msg.as_string())
+    except Exception as exc:
+        print(f"[Weave] SMTP error: {exc}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Failed to send verification email. ({exc})")
+
+
+def create_and_store_otp(user_id: int, email: str, db: Session) -> str:
+    existing = db.query(EmailOTPORM).filter(
+        EmailOTPORM.user_id == user_id,
+        EmailOTPORM.used == False,
+    ).all()
+    for otp_row in existing:
+        otp_row.used = True
+
+    plain_otp = generate_otp()
+    otp_row = EmailOTPORM(
+        user_id=user_id,
+        email=email,
+        otp_hash=hash_otp(plain_otp),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRE_MINUTES),
+    )
+    db.add(otp_row)
+    db.commit()
+    return plain_otp
+
 
 # ─────────────────────────────────────────────────────────────
 # Startup seed
 # ─────────────────────────────────────────────────────────────
 
+
 def seed_database():
     db = SessionLocal()
     try:
         if db.query(UserORM).count() > 0:
-            return  # Already seeded
+            return
 
-        # ── Users ────────────────────────────────────────────
         citizen1 = UserORM(
             email="anjali@example.com",
             hashed_password=hash_password("password123"),
             full_name="Anjali Mehta",
             role=UserRole.CITIZEN,
+            is_email_verified=True,
             latitude=18.5204, longitude=73.8567, city="Pune",
         )
         citizen2 = UserORM(
@@ -233,6 +336,7 @@ def seed_database():
             hashed_password=hash_password("password123"),
             full_name="Rahul Bose",
             role=UserRole.CITIZEN,
+            is_email_verified=True,
             latitude=18.4810, longitude=73.8533, city="Pune",
         )
         volunteer1 = UserORM(
@@ -240,6 +344,7 @@ def seed_database():
             hashed_password=hash_password("password123"),
             full_name="Ravi Kumar",
             role=UserRole.VOLUNTEER,
+            is_email_verified=True,
             skills="Waste Management,Sanitation,Community Outreach",
             bio="Field lead with 3 years of civic volunteering.",
             total_resolved=12,
@@ -250,6 +355,7 @@ def seed_database():
             hashed_password=hash_password("password123"),
             full_name="Priya Shah",
             role=UserRole.VOLUNTEER,
+            is_email_verified=True,
             skills="Road Repair,Construction",
             total_resolved=8,
             latitude=18.5362, longitude=73.8939, city="Pune",
@@ -259,14 +365,14 @@ def seed_database():
             hashed_password=hash_password("password123"),
             full_name="Sara Khan",
             role=UserRole.NGO,
+            is_email_verified=True,
             org_name="Green Pune Collective",
             ngo_status=NGOStatus.APPROVED,
             latitude=18.5204, longitude=73.8567, city="Pune",
         )
         db.add_all([citizen1, citizen2, volunteer1, volunteer2, ngo1])
-        db.flush()  # get IDs without commit
+        db.flush()
 
-        # ── Issues ───────────────────────────────────────────
         issues = [
             IssueORM(
                 title="Overflowing garbage near market",
@@ -315,10 +421,10 @@ def seed_database():
         ]
         db.add_all(issues)
         db.commit()
-        print("[Weave] Database seeded with demo data.")
+        print("[Weave] Database seeded with demo data.", flush=True)
     except Exception as e:
         db.rollback()
-        print(f"[Weave] Seed failed: {e}")
+        print(f"[Weave] Seed failed: {e}", flush=True)
     finally:
         db.close()
 
@@ -327,24 +433,23 @@ def seed_database():
 def on_startup():
     seed_database()
 
+
 # ─────────────────────────────────────────────────────────────
 # Auth utilities
 # ─────────────────────────────────────────────────────────────
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
+
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
-
-
-
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15))
     to_encode["exp"] = expire
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -370,7 +475,7 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DB) -> U
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str | None = payload.get("sub")
         if email is None:
             raise credentials_exc
@@ -396,12 +501,9 @@ class RegisterRequest(BaseModel):
     password: str
     full_name: str
     role: UserRole = UserRole.CITIZEN
-    # Volunteer
     skills: Optional[str] = None
     bio: Optional[str] = None
-    # NGO
     org_name: Optional[str] = None
-    # Location
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     city: Optional[str] = None
@@ -414,6 +516,16 @@ class TokenResponse(BaseModel):
     role: str
     full_name: str
     email: str
+    is_email_verified: bool = False
+
+
+class VerifyEmailRequest(BaseModel):
+    email: str
+    otp: str
+
+
+class ResendOtpRequest(BaseModel):
+    email: str
 
 
 class UserProfile(BaseModel):
@@ -422,6 +534,7 @@ class UserProfile(BaseModel):
     email: str
     full_name: str
     role: str
+    is_email_verified: bool
     skills: Optional[str] = None
     bio: Optional[str] = None
     org_name: Optional[str] = None
@@ -502,7 +615,6 @@ class NGOMemberStats(BaseModel):
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Compute great-circle distance between two lat/lon points in km."""
     R = 6371
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -513,7 +625,7 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def skill_match_score(volunteer_skills: str | None, issue_skills: str | None) -> float:
     if not volunteer_skills or not issue_skills:
-        return 0.5  # neutral
+        return 0.5
     v = {s.strip().lower() for s in volunteer_skills.split(",")}
     i = {s.strip().lower() for s in issue_skills.split(",")}
     return len(v & i) / len(i) if i else 0.5
@@ -552,9 +664,9 @@ def issue_to_response(issue: IssueORM) -> IssueResponse:
 
 @app.post("/api/auth/register", response_model=TokenResponse, tags=["Auth"])
 def register(body: RegisterRequest, db: DB):
-    """Register as Citizen, Volunteer (with skills), or NGO (document pending)."""
-    if db.query(UserORM).filter(UserORM.email == body.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered.")
+    existing = db.query(UserORM).filter(UserORM.email == body.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
 
     user = UserORM(
         email=body.email,
@@ -564,28 +676,86 @@ def register(body: RegisterRequest, db: DB):
         skills=body.skills,
         bio=body.bio,
         org_name=body.org_name,
-        ngo_status=NGOStatus.PENDING if body.role == UserRole.NGO else None,
         latitude=body.latitude,
         longitude=body.longitude,
         city=body.city,
+        is_email_verified=False,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    token = create_access_token({"sub": user.email}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    plain_otp = create_and_store_otp(user.id, user.email, db)
+    send_verification_email(user.email, user.full_name, plain_otp)
+
+    access_token = create_access_token(data={"sub": user.email})
     return TokenResponse(
-        access_token=token,
+        access_token=access_token,
+        token_type="bearer",
         user_id=user.id,
         role=user.role,
         full_name=user.full_name,
         email=user.email,
+        is_email_verified=False,  # always false on register so UI shows OTP step
     )
+
+
+@app.post("/api/auth/verify-email", tags=["Auth"])
+def verify_email(body: VerifyEmailRequest, db: DB):
+    user = db.query(UserORM).filter(UserORM.email == body.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if user.is_email_verified:
+        return {"detail": "Email already verified."}
+
+    otp_row = (
+        db.query(EmailOTPORM)
+        .filter(EmailOTPORM.user_id == user.id, EmailOTPORM.used == False)
+        .order_by(EmailOTPORM.created_at.desc())
+        .first()
+    )
+
+    if not otp_row:
+        raise HTTPException(status_code=400, detail="No active verification code found. Please request a new one.")
+
+    now = datetime.now(timezone.utc)
+    expires_at = otp_row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if now > expires_at:
+        otp_row.used = True
+        db.commit()
+        raise HTTPException(status_code=400, detail="Verification code expired. Please request a new one.")
+
+    if not verify_otp(body.otp, otp_row.otp_hash):
+        raise HTTPException(status_code=400, detail="Incorrect verification code.")
+
+    otp_row.used = True
+    user.is_email_verified = True
+    db.commit()
+
+    return {"detail": "Email verified successfully."}
+
+
+@app.post("/api/auth/resend-otp", tags=["Auth"])
+def resend_otp(body: ResendOtpRequest, db: DB):
+    user = db.query(UserORM).filter(UserORM.email == body.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    if user.is_email_verified:
+        raise HTTPException(status_code=400, detail="Email already verified.")
+
+    plain_otp = create_and_store_otp(user.id, user.email, db)
+    send_verification_email(user.email, user.full_name, plain_otp)
+
+    return {"detail": f"A new verification code has been sent to {body.email}."}
 
 
 @app.post("/api/auth/token", response_model=TokenResponse, tags=["Auth"])
 def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DB):
-    """Login with email+password; returns JWT token."""
     user = db.query(UserORM).filter(UserORM.email == form.username).first()
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password.")
@@ -597,6 +767,29 @@ def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DB):
         role=user.role,
         full_name=user.full_name,
         email=user.email,
+        is_email_verified=user.is_email_verified,
+    )
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login", response_model=TokenResponse, tags=["Auth"])
+def login_json(body: LoginRequest, db: DB):
+    user = db.query(UserORM).filter(UserORM.email == body.email).first()
+    if not user or not verify_password(body.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password.")
+
+    token = create_access_token({"sub": user.email}, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    return TokenResponse(
+        access_token=token,
+        user_id=user.id,
+        role=user.role,
+        full_name=user.full_name,
+        email=user.email,
+        is_email_verified=user.is_email_verified,
     )
 
 
@@ -607,13 +800,11 @@ def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DB):
 
 @app.get("/api/users/me", response_model=UserProfile, tags=["Users"])
 def get_my_profile(current_user: CurrentUser):
-    """Fetch the authenticated user's own profile."""
     return current_user
 
 
 @app.patch("/api/users/me", response_model=UserProfile, tags=["Users"])
 def update_my_profile(body: UpdateProfileRequest, current_user: CurrentUser, db: DB):
-    """Update mutable profile fields for the logged-in user."""
     updates = body.model_dump(exclude_none=True)
     for field, value in updates.items():
         setattr(current_user, field, value)
@@ -624,7 +815,6 @@ def update_my_profile(body: UpdateProfileRequest, current_user: CurrentUser, db:
 
 @app.get("/api/users/{user_id}", response_model=UserProfile, tags=["Users"])
 def get_user_profile(user_id: int, db: DB):
-    """Fetch a public user profile by ID."""
     user = db.query(UserORM).filter(UserORM.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -638,10 +828,6 @@ def get_user_profile(user_id: int, db: DB):
 
 @app.post("/api/issues", response_model=IssueResponse, status_code=201, tags=["Issues"])
 def create_issue(body: IssueCreate, current_user: CurrentUser, db: DB):
-    """
-    Citizen submits a new civic problem.
-    Accepts geolocation coordinates, description, category, and optional skill tags.
-    """
     issue = IssueORM(
         title=body.title,
         description=body.description,
@@ -667,7 +853,6 @@ async def upload_issue_image(
     current_user: CurrentUser,
     file: UploadFile = File(...),
 ):
-    """Upload a photo/document alongside an issue (reporter only)."""
     issue = db.query(IssueORM).filter(IssueORM.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found.")
@@ -689,7 +874,7 @@ async def upload_issue_image(
 @app.get("/api/issues", response_model=list[IssueResponse], tags=["Issues"])
 def list_issues(
     db: DB,
-    status: Optional[str] = Query(None, description="Filter: open | in_progress | resolved"),
+    status: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     reporter_id: Optional[int] = Query(None),
     resolver_id: Optional[int] = Query(None),
@@ -698,10 +883,6 @@ def list_issues(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
 ):
-    """
-    Activity log — filterable by status, category, reporter, resolver, NGO, or city.
-    Used by all three interfaces.
-    """
     q = db.query(IssueORM)
     if status:
         q = q.filter(IssueORM.status == status)
@@ -722,7 +903,6 @@ def list_issues(
 
 @app.get("/api/issues/{issue_id}", response_model=IssueResponse, tags=["Issues"])
 def get_issue(issue_id: int, db: DB):
-    """Fetch a single issue by ID."""
     issue = db.query(IssueORM).filter(IssueORM.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found.")
@@ -731,7 +911,6 @@ def get_issue(issue_id: int, db: DB):
 
 @app.patch("/api/issues/{issue_id}/claim", response_model=IssueResponse, tags=["Issues"])
 def claim_issue(issue_id: int, current_user: CurrentUser, db: DB):
-    """Volunteer claims an open issue, setting its status to in_progress."""
     if current_user.role != UserRole.VOLUNTEER:
         raise HTTPException(status_code=403, detail="Only volunteers can claim issues.")
 
@@ -755,10 +934,6 @@ async def resolve_issue(
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     proof: Optional[UploadFile] = File(None),
 ):
-    """
-    Volunteer marks an issue as resolved and optionally uploads proof (photo/doc).
-    Increments the volunteer's total_resolved counter.
-    """
     if current_user.role not in (UserRole.VOLUNTEER, UserRole.NGO):
         raise HTTPException(status_code=403, detail="Only volunteers or NGOs can resolve issues.")
 
@@ -786,7 +961,7 @@ async def resolve_issue(
 
 
 # ═══════════════════════════════════════════════════════════════
-# ROUTER: /api/match  (Volunteer skill + geo matching)
+# ROUTER: /api/match
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -794,25 +969,18 @@ async def resolve_issue(
 def get_matched_issues(
     current_user: CurrentUser,
     db: DB,
-    radius_km: float = Query(25.0, description="Search radius in km"),
+    radius_km: float = Query(25.0),
     limit: int = Query(20, le=50),
 ):
-    """
-    Returns open issues near the volunteer, ranked by skill-match score and distance.
-    Volunteer must have latitude/longitude set in their profile.
-    """
     if current_user.role != UserRole.VOLUNTEER:
         raise HTTPException(status_code=403, detail="Only volunteers can use matching.")
 
     if not current_user.latitude or not current_user.longitude:
-        raise HTTPException(
-            status_code=400,
-            detail="Update your location in profile settings before using matching.",
-        )
+        raise HTTPException(status_code=400, detail="Update your location in profile settings before using matching.")
 
     open_issues = db.query(IssueORM).filter(IssueORM.status == IssueStatus.OPEN).all()
-
     results: list[VolunteerMatchResponse] = []
+
     for issue in open_issues:
         dist = haversine_km(
             current_user.latitude, current_user.longitude,
@@ -829,7 +997,6 @@ def get_matched_issues(
             )
         )
 
-    # Best skill match first, closest distance as tiebreaker
     results.sort(key=lambda r: (-r.skill_match_score, r.distance_km))
     return results[:limit]
 
@@ -840,19 +1007,11 @@ def get_matched_issues(
 
 
 @app.get("/api/ngo/members", response_model=list[NGOMemberStats], tags=["NGO"])
-def get_ngo_members(
-    current_user: CurrentUser,
-    db: DB,
-    city: Optional[str] = Query(None),
-):
-    """NGO views stats for all active volunteers in their area."""
+def get_ngo_members(current_user: CurrentUser, db: DB, city: Optional[str] = Query(None)):
     if current_user.role != UserRole.NGO:
         raise HTTPException(status_code=403, detail="NGO access only.")
 
-    q = db.query(UserORM).filter(
-        UserORM.role == UserRole.VOLUNTEER,
-        UserORM.is_active == True,
-    )
+    q = db.query(UserORM).filter(UserORM.role == UserRole.VOLUNTEER, UserORM.is_active == True)
     if city:
         q = q.filter(func.lower(UserORM.city).contains(city.lower()))
 
@@ -868,19 +1027,11 @@ def get_ngo_members(
 
 
 @app.get("/api/ngo/unassigned", response_model=list[IssueResponse], tags=["NGO"])
-def get_unassigned_issues(
-    current_user: CurrentUser,
-    db: DB,
-    city: Optional[str] = Query(None),
-):
-    """NGO sees all open issues not yet claimed by any NGO — for manual assignment."""
+def get_unassigned_issues(current_user: CurrentUser, db: DB, city: Optional[str] = Query(None)):
     if current_user.role != UserRole.NGO:
         raise HTTPException(status_code=403, detail="NGO access only.")
 
-    q = db.query(IssueORM).filter(
-        IssueORM.status == IssueStatus.OPEN,
-        IssueORM.assigned_ngo_id.is_(None),
-    )
+    q = db.query(IssueORM).filter(IssueORM.status == IssueStatus.OPEN, IssueORM.assigned_ngo_id.is_(None))
     if city:
         q = q.filter(func.lower(IssueORM.city).contains(city.lower()))
 
@@ -889,7 +1040,6 @@ def get_unassigned_issues(
 
 @app.patch("/api/ngo/assign/{issue_id}", response_model=IssueResponse, tags=["NGO"])
 def assign_issue_to_ngo(issue_id: int, current_user: CurrentUser, db: DB):
-    """NGO manually claims ownership / coordination of an issue."""
     if current_user.role != UserRole.NGO:
         raise HTTPException(status_code=403, detail="NGO access only.")
 
@@ -905,7 +1055,6 @@ def assign_issue_to_ngo(issue_id: int, current_user: CurrentUser, db: DB):
 
 @app.get("/api/ngo/stats", tags=["NGO"])
 def get_ngo_dashboard_stats(current_user: CurrentUser, db: DB):
-    """Aggregate dashboard stats for the NGO's assigned issues."""
     if current_user.role != UserRole.NGO:
         raise HTTPException(status_code=403, detail="NGO access only.")
 
@@ -924,11 +1073,16 @@ def get_ngo_dashboard_stats(current_user: CurrentUser, db: DB):
     }
 
 
-# ─────────────────────────────────────────────────────────────
-# Health check
-# ─────────────────────────────────────────────────────────────
-
-
 @app.get("/api/health", tags=["System"])
 def health():
-    return {"status": "ok", "service": "Weave Civic Connect API", "version": "1.0.0"}
+    return {
+        "status": "ok",
+        "service": "Weave Civic Connect API",
+        "version": "1.0.0",
+        "email_sending": EMAIL_ENABLED,
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
