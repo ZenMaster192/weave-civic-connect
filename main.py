@@ -49,7 +49,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
 
 SECRET_KEY = os.getenv("WEAVE_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION_supersecret_key_32chars!!")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./weave.db")
 UPLOAD_DIR = "uploads"
@@ -479,7 +479,14 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DB) -> U
         email: str | None = payload.get("sub")
         if email is None:
             raise credentials_exc
-    except JWTError:
+    except Exception as exc:
+        # Covers ExpiredSignatureError, DecodeError, and any other JWT issue
+        if "expired" in str(exc).lower():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         raise credentials_exc
 
     user = db.query(UserORM).filter(UserORM.email == email).first()
@@ -1071,6 +1078,42 @@ def get_ngo_dashboard_stats(current_user: CurrentUser, db: DB):
         "open": open_count,
         "resolution_rate": round(resolved / total * 100, 1) if total else 0,
     }
+
+
+@app.get("/api/geocode/reverse", tags=["Geocode"])
+async def reverse_geocode(lat: float, lng: float):
+    """Convert lat/lng to a human-readable address using OpenStreetMap Nominatim."""
+    import urllib.request
+    import json as _json
+
+    url = (
+        f"https://nominatim.openstreetmap.org/reverse"
+        f"?format=json&lat={lat}&lon={lng}&zoom=16&addressdetails=1"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "WeaveCivicConnect/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = _json.loads(resp.read().decode())
+
+        addr = data.get("address", {})
+        parts = []
+        for key in ["road", "suburb", "neighbourhood", "quarter"]:
+            if addr.get(key):
+                parts.append(addr[key])
+                break
+        city = (
+            addr.get("city")
+            or addr.get("town")
+            or addr.get("village")
+            or addr.get("county")
+            or ""
+        )
+        display = data.get("display_name", "")
+        short_address = ", ".join(parts) + (f", {city}" if city else "") if parts else display[:80]
+
+        return {"address": short_address, "city": city, "display_name": display}
+    except Exception as exc:
+        return {"address": "", "city": "", "display_name": "", "error": str(exc)}
 
 
 @app.get("/api/health", tags=["System"])

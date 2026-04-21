@@ -312,3 +312,21 @@ export const ngoApi = {
 
   getStats: () => request<NGOStats>("/api/ngo/stats"),
 };
+
+// ── Geocode ────────────────────────────────────────────────────────────
+
+export interface GeocodeResult {
+  address: string;
+  city: string;
+  display_name: string;
+  error?: string;
+}
+
+export const geocodeApi = {
+  reverse: (lat: number, lng: number) =>
+    request<GeocodeResult>(
+      `/api/geocode/reverse?lat=${lat}&lng=${lng}`,
+      {},
+      false  // no auth required
+    ),
+};

@@ -122,4 +122,20 @@
     transition: var(--transition-smooth);
   }
   .soft-card:hover { box-shadow: var(--shadow-card); transform: translateY(-2px); }
+
+  /* Transition utility */
+  .transition-smooth { transition: var(--transition-smooth); }
+
+  /* Step panel — slides + fades in */
+  .step-panel {
+    animation: step-enter 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+
+  /* Shadow-glow utility */
+  .shadow-glow { box-shadow: var(--shadow-glow); }
+}
+
+@keyframes step-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
