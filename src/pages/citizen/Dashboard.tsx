@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { issuesApi, type Issue } from "@/services/api";
 import { useAuthStore } from "@/store/AuthStore";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 export default function CitizenDashboard() {
   const { token } = useAuthStore();
@@ -61,7 +62,9 @@ export default function CitizenDashboard() {
               {isLoading
                 ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
                 : issues.slice(0, 3).map(i => (
-                  <Card key={i.id} className="p-4 flex gap-4 items-center soft-card border-0">
+                  <Dialog key={i.id}>
+                  <DialogTrigger asChild>
+                  <Card className="p-4 flex gap-4 items-center soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
                     {i.image_url
                       ? <img src={i.image_url} alt={i.title} className="w-16 h-16 rounded-xl object-cover" />
                       : <div className="w-16 h-16 rounded-xl bg-muted flex items-center justify-center text-xs text-muted-foreground">{i.category}</div>
@@ -74,6 +77,28 @@ export default function CitizenDashboard() {
                       {i.status.replace("_", " ")}
                     </Badge>
                   </Card>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                      <DialogTitle className="font-display text-2xl">{i.title}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 text-sm">
+                      {i.image_url && (
+                        <img src={i.image_url} alt={i.title} className="w-full h-48 object-cover rounded-xl" />
+                      )}
+                      <Badge variant="secondary" className="capitalize">{i.category}</Badge>
+                      <p className="text-xs text-muted-foreground"> 
+                        Description: <span className="text-sm text-muted-foreground">{i.description}</span></p>
+                      <p className="text-xs text-muted-foreground"> Location: {i.address ?? i.city}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Status: <span className="font-medium capitalize">{i.status.replace("_", " ")}</span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Raised on {new Date(i.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </DialogContent>
+                  </Dialog>
                 ))
               }
             </div>

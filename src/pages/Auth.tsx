@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { WeaveLogo } from "@/components/WeaveLogo";
+import {InputOTP, InputOTPGroup, InputOTPSlot} from "@/components/ui/input-otp";
 import { SKILLS } from "@/lib/mockData";
 import {
   ArrowLeft, ShieldCheck, Mail, Phone,
@@ -28,51 +29,6 @@ const ROLE_META: Record<Role, { title: string; devanagari: string; bg: string; t
   ngo:       { title: "NGO",       devanagari: "संस्था",    bg: "bg-gradient-ngo",       tagline: "Coordinate. Supervise. Scale." },
 };
 
-function OtpInput({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
-  const refs = Array.from({ length: 6 }, () => useRef<HTMLInputElement>(null));
-  const digits = value.padEnd(6, "").split("").slice(0, 6);
-  const focus = (i: number) => refs[i]?.current?.focus();
-
-  const handleChange = (i: number, raw: string) => {
-    const ch = raw.replace(/\D/g, "").slice(-1);
-    const next = digits.map((d, idx) => (idx === i ? ch : d)).join("").trimEnd();
-    onChange(next);
-    if (ch && i < 5) focus(i + 1);
-  };
-
-  const handleKey = (i: number, e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !digits[i] && i > 0) {
-      onChange(digits.slice(0, i - 1).join(""));
-      focus(i - 1);
-    }
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    if (pasted) { onChange(pasted); focus(Math.min(pasted.length, 5)); e.preventDefault(); }
-  };
-
-  return (
-    <div className="flex gap-2 justify-center" onPaste={handlePaste}>
-      {digits.map((d, i) => (
-        <input
-          key={i}
-          ref={refs[i]}
-          type="text"
-          inputMode="numeric"
-          maxLength={1}
-          value={d}
-          disabled={disabled}
-          onChange={(e) => handleChange(i, e.target.value)}
-          onKeyDown={(e) => handleKey(i, e)}
-          onFocus={(e) => e.target.select()}
-          style={{ width: "44px", height: "52px" }}
-          className={`text-center text-xl font-bold rounded-xl border-2 bg-background transition-all outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-50 disabled:cursor-not-allowed ${d ? "border-primary/60 text-foreground" : "border-border text-muted-foreground"}`}
-        />
-      ))}
-    </div>
-  );
-}
 
 function useResendCooldown(seconds = 60) {
   const [remaining, setRemaining] = useState(seconds);
@@ -315,7 +271,23 @@ export default function Auth() {
                   </p>
                 </div>
 
-                <OtpInput value={otp} onChange={setOtp} disabled={verifyOtpMutation.isPending || otpVerified} />
+                <div className="flex justify-center py-4">
+                <InputOTP
+                  maxLength={6}
+                  value={otp}
+                  onChange={setOtp}
+                  disabled={verifyOtpMutation.isPending || otpVerified}
+                >
+                  <InputOTPGroup className="gap-2">
+                    <InputOTPSlot index={0} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={1} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={2} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={3} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={4} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={5} className="w-12 h-12 text-xl rounded-md border-2" />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
 
                 {verifyOtpMutation.isPending && (
                   <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
