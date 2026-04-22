@@ -29,6 +29,7 @@ from jwt import encode, decode
 from jwt.exceptions import DecodeError as JWTError
 from passlib.context import CryptContext
 from pydantic import BaseModel
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Enum, UniqueConstraint
 from sqlalchemy import (
     Boolean,
     Column,
@@ -195,6 +196,14 @@ class IssueORM(Base):
     )
     resolved_at = Column(DateTime, nullable=True)
     required_skills = Column(Text, nullable=True)
+
+class Upvote(Base):
+    __tablename__ = "upvotes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    issue_id = Column(Integer, ForeignKey("issues.id"), nullable=False)
+    __table_args__ = (UniqueConstraint('user_id', 'issue_id', name='_user_issue_uc'),)
 
 
 Base.metadata.create_all(bind=engine)
@@ -965,7 +974,42 @@ async def resolve_issue(
     db.commit()
     db.refresh(issue)
     return issue_to_response(issue)
+@app.post("/api/issues/{issue_id}/upvote", status_code=201, tags=["Issues"])
+def upvote_issue(
+    issue_id: int, 
+    db: DB, 
+    current_user: CurrentUser
+):
+#  Allows a citizen or volunteer to upvote/endorse an issue.
+# A user can only upvote a specific issue once.
 
+    # 1. Check if the issue actually exists
+    issue = db.query(IssueORM).filter(IssueORM.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+        
+    # 2. Check if this user has already upvoted this specific issue
+    existing_upvote = db.query(Upvote).filter(
+        Upvote.issue_id == issue_id, 
+        Upvote.user_id == current_user.id
+    ).first()
+    
+    if existing_upvote:
+        raise HTTPException(status_code=400, detail="You have already upvoted this issue")
+        
+    # 3. Save the new upvote
+    new_upvote = Upvote(user_id=current_user.id, issue_id=issue_id)
+    db.add(new_upvote)
+    db.commit()
+    
+    # 4. Return the new total count so the frontend can update instantly
+    total_upvotes = db.query(Upvote).filter(Upvote.issue_id == issue_id).count()
+    
+    return {
+        "message": "Upvote added successfully", 
+        "issue_id": issue_id,
+        "total_upvotes": total_upvotes
+    }
 
 # ═══════════════════════════════════════════════════════════════
 # ROUTER: /api/match
