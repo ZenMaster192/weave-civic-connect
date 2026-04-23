@@ -180,62 +180,94 @@ export default function Auth() {
 
                   <TabsContent value="signup">
                     <form onSubmit={handleSignup} className="space-y-4">
-                      <div>
-                        <Label htmlFor="name">Full name</Label>
-                        <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Anjali Mehta" />
-                      </div>
-                      {r === "ngo" && (
-                        <div>
-                          <Label htmlFor="org">Organization name</Label>
-                          <Input id="org" value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="e.g. Green Pune Collective" />
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><Label>City</Label><Input placeholder="Pune" value={city} onChange={(e) => setCity(e.target.value)} /></div>
-                        <div><Label>Age</Label><Input type="number" placeholder="28" /></div>
-                      </div>
-                      <div>
-                        <Label htmlFor="email">Email</Label>
-                        <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-                      </div>
-                      <div><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" placeholder="+91 ..." /></div>
-                      <div>
-                        <Label htmlFor="pw">Password</Label>
-                        <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
-                      </div>
-
-                      {r === "volunteer" && (
-                        <div>
-                          <Label className="mb-2 block">Pick your skills</Label>
-                          <div className="flex flex-wrap gap-2 max-h-40 overflow-auto p-2 rounded-lg bg-muted/40">
-                            {SKILLS.map((s) => (
-                              <button type="button" key={s} onClick={() => toggleSkill(s)}
-                                className={`px-3 py-1 text-xs rounded-full border transition-smooth ${skills.includes(s) ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-secondary border-border"}`}>
-                                {s}
-                              </button>
-                            ))}
-                          </div>
-                          <Input className="mt-3" placeholder="Profession (optional)" />
-                        </div>
-                      )}
-
-                      {r === "ngo" && (
+                      {r === "ngo" ? (
                         <>
-                          <div><Label>Establishment year</Label><Input placeholder="2018" /></div>
-                          <div><Label>Member count</Label><Input type="number" placeholder="42" /></div>
+                          <div>
+                            <Label htmlFor="org">Organization name</Label>
+                            <Input id="org" value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="e.g. Green Bhubaneswar Collective" />
+                          </div>
+                          <div>
+                            <Label htmlFor="email">Organisation Email</Label>
+                            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+                          </div>                          
+                          <div>
+                            <Label>City</Label>
+                            <Input placeholder="Bhubaneswar" value={city} onChange={(e) => setCity(e.target.value)} />
+                          </div>
+                          <div>
+                            <Label>Establishment year</Label>
+                            <Input placeholder="2018" />
+                          </div>
+                          <div>
+                            <Label>Member count</Label>
+                            <Input type="number" placeholder="42" />
+                          </div>
                           <div>
                             <Label>Registration certificate</Label>
                             <div className="mt-2 border-2 border-dashed border-border rounded-xl p-5 text-center text-sm text-muted-foreground hover:bg-muted/40 transition-smooth cursor-pointer">
                               <Upload className="w-5 h-5 mx-auto mb-1" />Click to upload PDF / image
                             </div>
                           </div>
+                          <div>
+                            <Label htmlFor="name">Name of representative</Label>
+                            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dishashree Swain" />
+                          </div>
+                          <div>
+                            <Label>Age of representative</Label>
+                            <Input type="number" placeholder="28" />
+                          </div>
+                          <div>
+                            <Label htmlFor="phone">Phone</Label>
+                            <Input id="phone" type="tel" placeholder="+91 ..." />
+                          </div>
+                          <div>
+                            <Label htmlFor="pw">Password</Label>
+                            <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+                          </div>
                           <div className="rounded-xl bg-secondary/60 p-3 text-xs text-secondary-foreground flex gap-2">
                             <ShieldCheck className="w-4 h-4 mt-0.5 flex-shrink-0" />
                             NGO accounts require manual approval before going live.
                           </div>
                         </>
-                      )}
+                      ) : (
+                        <>
+                          <div>
+                            <Label htmlFor="name">Full name</Label>
+                            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dishashree Swain" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div><Label>City</Label><Input placeholder="Bhubaneswar" value={city} onChange={(e) => setCity(e.target.value)} /></div>
+                            <div><Label>Age</Label><Input type="number" placeholder="28" /></div>
+                          </div>
+                          <div>
+                            <Label htmlFor="email">Email</Label>
+                            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+                          </div>
+                          <div>
+                            <Label htmlFor="phone">Phone</Label>
+                            <Input id="phone" type="tel" placeholder="+91 ..." />
+                          </div>
+                          <div>
+                            <Label htmlFor="pw">Password</Label>
+                            <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+                          </div>
 
+                          {r === "volunteer" && (
+                            <div>
+                              <Label className="mb-2 block">Pick your skills</Label>
+                              <div className="flex flex-wrap gap-2 max-h-40 overflow-auto p-2 rounded-lg bg-muted/40">
+                                {SKILLS.map((s) => (
+                                  <button type="button" key={s} onClick={() => toggleSkill(s)}
+                                    className={`px-3 py-1 text-xs rounded-full border transition-smooth ${skills.includes(s) ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-secondary border-border"}`}>
+                                    {s}
+                                  </button>
+                                ))}
+                              </div>
+                              <Input className="mt-3" placeholder="Profession (optional)" />
+                            </div>
+                          )}
+                        </>
+                      )}
                       <Button type="submit" className="w-full" size="lg" disabled={registerMutation.isPending}>
                         {registerMutation.isPending
                           ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating account…</>
@@ -252,7 +284,7 @@ export default function Auth() {
                         {loginMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Signing in…</> : `Sign in as ${meta.title}`}
                       </Button>
                       <p className="text-xs text-center text-muted-foreground">
-                        Seeded demo: anjali@example.com / ravi@example.com / sara@greenpune.org — password: password123
+                        Seeded demo: anjali@example.com / ravi@example.com / sara@greenbbsr.org — password: password123
                       </p>
                     </form>
                   </TabsContent>

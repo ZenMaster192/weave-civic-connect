@@ -29,7 +29,7 @@ from jwt import encode, decode
 from jwt.exceptions import DecodeError as JWTError
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, UniqueConstraint
 from sqlalchemy import (
     Boolean,
     Column,
@@ -57,6 +57,7 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ── Email config ─────────────────────────────────────────────
+
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")

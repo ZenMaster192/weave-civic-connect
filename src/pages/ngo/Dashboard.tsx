@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MOCK_ISSUES, MOCK_NGO_MEMBERS } from "@/lib/mockData";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Building2, Users, AlertCircle, CheckCircle2, ArrowRight, Bell } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -43,19 +44,40 @@ export default function NgoDashboard() {
             })}
           </div>
 
-          <div>
+<div>
             <h3 className="font-display text-xl mb-3">Unassigned nearby issues</h3>
             <div className="space-y-3">
               {MOCK_ISSUES.filter(i => i.status === "unresolved").map(i => (
-                <Card key={i.id} className="p-4 flex gap-4 items-center soft-card border-0">
-                  <img src={i.beforeImage} alt="" className="w-16 h-16 rounded-xl object-cover" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{i.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">{i.location}</p>
-                  </div>
-                  <Badge variant="secondary">{i.category}</Badge>
-                  <Button size="sm">Assign</Button>
-                </Card>
+                <Dialog key={i.id}>
+                  <DialogTrigger asChild>
+                    <Card className="p-4 flex gap-4 items-center soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
+                      <img src={i.beforeImage} alt="" className="w-16 h-16 rounded-xl object-cover" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{i.title}</p>
+                        <p className="text-xs text-muted-foreground truncate">{i.location}</p>
+                      </div>
+                      <Badge variant="secondary">{i.category}</Badge>
+                      <Button size="sm" onClick={e => e.stopPropagation()}>Assign</Button>
+                    </Card>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle className="font-display text-2xl">{i.title}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 text-sm">
+                      <img src={i.beforeImage} alt={i.title} className="w-full h-48 object-cover rounded-xl" />
+                      <Badge variant="secondary" className="capitalize">{i.category}</Badge>
+                      <p className="text-xs text-muted-foreground">Description: <span className="text-sm">{i.description}</span></p>
+                      <p className="text-xs text-muted-foreground">📍 {i.location}</p>
+                      <p className="text-xs text-muted-foreground">Status: <span className="font-medium capitalize">{i.status.replace("_", " ")}</span></p>
+                      <p className="text-xs text-muted-foreground">Raised on {new Date(i.createdAt).toLocaleDateString()}</p>
+                      <div className="flex gap-2 pt-2">
+                        <Button className="flex-1">Assign to me</Button>
+                        <Button variant="outline">Skip</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               ))}
             </div>
           </div>
