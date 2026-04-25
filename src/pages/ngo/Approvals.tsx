@@ -7,7 +7,10 @@ import { Check, X, Phone, MapPin, Zap } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import { MOCK_NGO_MEMBERS } from "@/lib/mockData";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ngoApi } from "@/services/api";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 type Volunteer = {
   name: string;
@@ -19,114 +22,114 @@ type Volunteer = {
   avatar: string;
 };
 
-const INITIAL_REQUESTS: Volunteer[] = [
-  { name: "Anish Reddy",  skills: ["Plumbing", "Construction"],          xp: 0,   distance: "1.2 km", phone: "+91 98200 11111", city: "Pune",  avatar: "AR" },
-  { name: "Meera Iyer",   skills: ["Teaching", "Community Outreach"],    xp: 220, distance: "3.4 km", phone: "+91 98200 22222", city: "Pune",  avatar: "MI" },
-  { name: "Vikram Joshi", skills: ["Electrical", "IT Support"],          xp: 540, distance: "0.8 km", phone: "+91 98200 33333", city: "Pune",  avatar: "VJ" },
-];
-
 export default function Approvals() {
-  const [pending, setPending] = useState<Volunteer[]>(INITIAL_REQUESTS);
-  const [members, setMembers] = useState(MOCK_NGO_MEMBERS);
-  const [selected, setSelected] = useState<Volunteer | null>(null);
+  const queryClient = useQueryClient();
+  const [selectedReqId, setSelectedReqId] = useState<number | null>(null);
 
-  const decline = (name: string) => {
-    setPending(prev => prev.filter(v => v.name !== name));
-    setSelected(null);
-  };
+  const { data: requests = [], isLoading } = useQuery({
+      queryKey: ["ngo", "requests"],
+      queryFn: ngoApi.getRequests,
+  });
 
-  const approve = (vol: Volunteer) => {
-    setPending(prev => prev.filter(v => v.name !== vol.name));
-    setMembers(prev => [...prev, { name: vol.name, role: "Volunteer", xp: vol.xp, tier: "Seed", avatar: vol.avatar }]);
-    setSelected(null);
-  };
+  const pending = requests.filter(r => r.status === "PENDING" && r.initiated_by === "VOLUNTEER");
+
+  const approveMutation = useMutation({
+      mutationFn: ngoApi.approveRequest,
+      onSuccess: () => {
+          toast.success("Volunteer approved and added to team.");
+          setSelectedReqId(null);
+          queryClient.invalidateQueries({ queryKey: ["ngo"] });
+      },
+      onError: (e: Error) => toast.error(e.message)
+  });
+
+  // Since we don't have a decline API yet, we'll just mock it and hide it locally for demo purposes, 
+  // or you could add a reject endpoint. Let's just mock hiding it for now.
+  const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
+
+  const visiblePending = pending.filter(r => !hiddenIds.has(r.id));
 
   return (
     <AppShell role="ngo">
       <h1 className="font-display text-4xl mb-2">Volunteer approvals</h1>
       <p className="text-muted-foreground mb-6">
-        Independent volunteers requesting affiliation · {pending.length} pending
+        Independent volunteers requesting affiliation · {visiblePending.length} pending
       </p>
 
-      {pending.length === 0 && (
+      {isLoading ? (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+           {Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+        </div>
+      ) : visiblePending.length === 0 ? (
         <Card className="p-10 soft-card border-0 text-center text-muted-foreground">
           <Check className="w-8 h-8 mx-auto mb-3 text-primary/40" />
           <p className="font-medium">All caught up — no pending requests.</p>
         </Card>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {visiblePending.map(req => {
+            const initials = req.volunteer_name.split(' ').map(n => n[0]).join('').substring(0,2).toUpperCase();
+            
+            return (
+            <Dialog key={req.id} open={selectedReqId === req.id} onOpenChange={open => setSelectedReqId(open ? req.id : null)}>
+              <DialogTrigger asChild>
+                <Card className="p-5 soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-accent flex items-center justify-center font-display font-bold text-sm">
+                      {initials}
+                    </div>
+                    <div>
+                      <h3 className="font-display text-lg leading-tight">{req.volunteer_name}</h3>
+                      <p className="text-xs text-muted-foreground">Applied {new Date(req.created_at).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <Button
+                      variant="outline" size="sm" className="flex-1 gap-1"
+                      onClick={e => { e.stopPropagation(); setHiddenIds(prev => new Set([...prev, req.id])); setSelectedReqId(null); }}
+                    >
+                      <X className="w-3.5 h-3.5" /> Decline
+                    </Button>
+                    <Button
+                      size="sm" className="flex-1 gap-1"
+                      disabled={approveMutation.isPending}
+                      onClick={e => { e.stopPropagation(); approveMutation.mutate(req.id); }}
+                    >
+                      <Check className="w-3.5 h-3.5" /> Approve
+                    </Button>
+                  </div>
+                </Card>
+              </DialogTrigger>
+
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="font-display text-2xl">{req.volunteer_name}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-accent flex items-center justify-center font-display font-bold text-xl">
+                    {initials}
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Zap className="w-4 h-4" /> Requested to join your NGO
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <Button variant="outline" className="flex-1 gap-1" onClick={() => {setHiddenIds(prev => new Set([...prev, req.id])); setSelectedReqId(null)}}>
+                      <X className="w-4 h-4" /> Decline
+                    </Button>
+                    <Button className="flex-1 gap-1" disabled={approveMutation.isPending} onClick={() => approveMutation.mutate(req.id)}>
+                      <Check className="w-4 h-4" /> Approve & add to team
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            );
+          })}
+        </div>
       )}
-
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {pending.map(vol => (
-          <Dialog key={vol.name} open={selected?.name === vol.name} onOpenChange={open => setSelected(open ? vol : null)}>
-            <DialogTrigger asChild>
-              <Card className="p-5 soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-accent flex items-center justify-center font-display font-bold text-sm">
-                    {vol.avatar}
-                  </div>
-                  <div>
-                    <h3 className="font-display text-lg leading-tight">{vol.name}</h3>
-                    <p className="text-xs text-muted-foreground">{vol.distance} · {vol.xp} XP</p>
-                  </div>
-                </div>
-                <div className="flex gap-1 flex-wrap mb-4">
-                  {vol.skills.map(s => <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>)}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline" size="sm" className="flex-1 gap-1"
-                    onClick={e => { e.stopPropagation(); decline(vol.name); }}
-                  >
-                    <X className="w-3.5 h-3.5" /> Decline
-                  </Button>
-                  <Button
-                    size="sm" className="flex-1 gap-1"
-                    onClick={e => { e.stopPropagation(); approve(vol); }}
-                  >
-                    <Check className="w-3.5 h-3.5" /> Approve
-                  </Button>
-                </div>
-              </Card>
-            </DialogTrigger>
-
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle className="font-display text-2xl">{vol.name}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-accent flex items-center justify-center font-display font-bold text-xl">
-                  {vol.avatar}
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Phone className="w-4 h-4" /> {vol.phone}
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <MapPin className="w-4 h-4" /> {vol.city} · {vol.distance} away
-                  </div>
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Zap className="w-4 h-4" /> {vol.xp} XP earned
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Skills</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {vol.skills.map(s => <Badge key={s} variant="secondary">{s}</Badge>)}
-                  </div>
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <Button variant="outline" className="flex-1 gap-1" onClick={() => decline(vol.name)}>
-                    <X className="w-4 h-4" /> Decline
-                  </Button>
-                  <Button className="flex-1 gap-1" onClick={() => approve(vol)}>
-                    <Check className="w-4 h-4" /> Approve & add to team
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        ))}
-      </div>
     </AppShell>
   );
 }

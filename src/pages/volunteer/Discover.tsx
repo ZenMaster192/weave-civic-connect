@@ -24,7 +24,6 @@ export default function Discover() {
   const queryClient = useQueryClient();
   const [selectedMatch, setSelectedMatch] = useState<VolunteerMatch | null>(null);
   const [resolving, setResolving] = useState(false);
-  const [rating, setRating] = useState(5);
   const [proofFile, setProofFile] = useState<File | null>(null);
 
   const { data: matches = [], isLoading } = useQuery<VolunteerMatch[]>({
@@ -123,16 +122,7 @@ export default function Discover() {
                       <input type="file" className="hidden" accept="image/*" onChange={(e) => setProofFile(e.target.files?.[0] ?? null)} />
                     </label>
                     <Textarea placeholder="Resolution notes..." rows={2} />
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Rate the citizen</p>
-                      <div className="flex gap-1">
-                        {[1, 2, 3, 4, 5].map(n => (
-                          <button key={n} onClick={() => setRating(n)}>
-                            <Star className={`w-5 h-5 ${n <= rating ? "fill-accent text-accent" : "text-muted-foreground"}`} />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <Textarea placeholder="Resolution notes (optional)..." rows={2} />
                     <Button
                       className="w-full"
                       onClick={() => resolveMutation.mutate(selected.issue.id)}

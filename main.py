@@ -17,6 +17,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     HTTPException,
     Query,
     UploadFile,
@@ -139,6 +140,7 @@ class UserORM(Base):
     org_name = Column(String(255), nullable=True)
     ngo_status = Column(String(20), nullable=True)
     ngo_document_url = Column(String(512), nullable=True)
+    impact_score = Column(Float, default=0.0) # rolling avg of ratings
 
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
@@ -205,6 +207,48 @@ class Upvote(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     issue_id = Column(Integer, ForeignKey("issues.id"), nullable=False)
     __table_args__ = (UniqueConstraint('user_id', 'issue_id', name='_user_issue_uc'),)
+    
+class DispatchRequestORM(Base):
+    __tablename__ = "dispatch_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    issue_id = Column(Integer, ForeignKey("issues.id"), nullable=False, index=True)
+    volunteer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(20), default="PENDING") # PENDING, ACCEPTED, EXPIRED, CANCELLED
+    score = Column(Float, nullable=False) # Match score
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime, nullable=False)
+
+    issue = relationship("IssueORM")
+    volunteer = relationship("UserORM")
+
+
+class ReviewORM(Base):
+    __tablename__ = "reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    issue_id = Column(Integer, ForeignKey("issues.id"), nullable=False, unique=True)
+    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    volunteer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    rating = Column(Integer, nullable=False) # 1-5
+    review_text = Column(Text, nullable=False)
+    after_image_url = Column(String(512), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    issue = relationship("IssueORM")
+
+
+class NGOMembershipRequestORM(Base):
+    __tablename__ = "ngo_membership_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    volunteer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    ngo_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    initiated_by = Column(String(20), nullable=False) # "VOLUNTEER" or "NGO"
+    status = Column(String(20), default="PENDING") # PENDING, APPROVED, REJECTED
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (UniqueConstraint('volunteer_id', 'ngo_id', name='_vol_ngo_uc'),)
 
 
 Base.metadata.create_all(bind=engine)
@@ -624,6 +668,50 @@ class NGOMemberStats(BaseModel):
     volunteer_name: str
     total_resolved: int
     skills: Optional[str] = None
+    impact_score: float = 0.0
+
+class DispatchRequestResponse(BaseModel):
+    id: int
+    issue_id: int
+    volunteer_id: int
+    status: str
+    score: float
+    created_at: datetime
+    expires_at: datetime
+    issue: IssueResponse
+
+    class Config:
+        from_attributes = True
+
+class ReviewCreate(BaseModel):
+    rating: int
+    review_text: str
+
+class ReviewResponse(BaseModel):
+    id: int
+    issue_id: int
+    reviewer_id: int
+    volunteer_id: int
+    rating: int
+    review_text: str
+    after_image_url: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class NGOMembershipRequestResponse(BaseModel):
+    id: int
+    volunteer_id: int
+    volunteer_name: str
+    ngo_id: int
+    ngo_name: str
+    initiated_by: str
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1012,6 +1100,225 @@ def upvote_issue(
         "total_upvotes": total_upvotes
     }
 
+@app.post("/api/issues/{issue_id}/dispatch", tags=["Dispatch"])
+def dispatch_issue(issue_id: int, current_user: CurrentUser, db: DB, limit: int = 5):
+    """Broadcasts an issue to top matching volunteers (race condition model)."""
+    if current_user.role not in (UserRole.NGO, UserRole.CITIZEN):
+        # In a real app, maybe only system/NGO triggers this. For demo, citizen can too.
+        pass
+
+    issue = db.query(IssueORM).filter(IssueORM.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    if issue.status != IssueStatus.OPEN:
+        raise HTTPException(status_code=400, detail="Issue is not open.")
+
+    # Cancel any existing pending dispatches for this issue
+    db.query(DispatchRequestORM).filter(
+        DispatchRequestORM.issue_id == issue_id,
+        DispatchRequestORM.status == "PENDING"
+    ).update({"status": "CANCELLED"})
+
+    # Find volunteers
+    volunteers = db.query(UserORM).filter(
+        UserORM.role == UserRole.VOLUNTEER,
+        UserORM.is_active == True,
+        UserORM.latitude.isnot(None),
+        UserORM.longitude.isnot(None)
+    ).all()
+
+    scored_vols = []
+    for vol in volunteers:
+        # Distance (max radius say 25km for scoring)
+        dist = haversine_km(issue.latitude, issue.longitude, vol.latitude, vol.longitude)
+        if dist > 50: # Hard cutoff
+            continue
+        dist_norm = max(0, 1.0 - (dist / 25.0))
+        
+        # Skills
+        s_match = skill_match_score(vol.skills, issue.required_skills)
+        
+        # Experience (cap at 50)
+        exp_norm = min((vol.total_resolved or 0) / 50.0, 1.0)
+        
+        # Impact (rating is 1-5, normalize to 0-1)
+        impact_norm = ((vol.impact_score or 3.0) - 1) / 4.0
+
+        score = (s_match * 0.4) + (exp_norm * 0.2) + (dist_norm * 0.2) + (impact_norm * 0.2)
+        scored_vols.append((score, vol))
+
+    scored_vols.sort(key=lambda x: x[0], reverse=True)
+    top_vols = scored_vols[:limit]
+
+    if not top_vols:
+        raise HTTPException(status_code=404, detail="No eligible volunteers found nearby.")
+
+    expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+    dispatches = []
+    for score, vol in top_vols:
+        d = DispatchRequestORM(
+            issue_id=issue_id,
+            volunteer_id=vol.id,
+            score=score,
+            expires_at=expires,
+            status="PENDING"
+        )
+        db.add(d)
+        dispatches.append(d)
+
+    db.commit()
+    return {"message": f"Dispatched to {len(dispatches)} volunteers"}
+
+@app.get("/api/volunteer/dispatch/pending", response_model=list[DispatchRequestResponse], tags=["Dispatch"])
+def get_pending_dispatches(current_user: CurrentUser, db: DB):
+    if current_user.role != UserRole.VOLUNTEER:
+        raise HTTPException(status_code=403, detail="Only volunteers.")
+
+    now = datetime.now(timezone.utc)
+    
+    # Auto-expire old ones
+    db.query(DispatchRequestORM).filter(
+        DispatchRequestORM.status == "PENDING",
+        DispatchRequestORM.expires_at < now
+    ).update({"status": "EXPIRED"})
+    db.commit()
+
+    dispatches = db.query(DispatchRequestORM).filter(
+        DispatchRequestORM.volunteer_id == current_user.id,
+        DispatchRequestORM.status == "PENDING"
+    ).all()
+
+    # Build response manually to include issue_to_response
+    res = []
+    for d in dispatches:
+        res.append(DispatchRequestResponse(
+            id=d.id,
+            issue_id=d.issue_id,
+            volunteer_id=d.volunteer_id,
+            status=d.status,
+            score=d.score,
+            created_at=d.created_at,
+            expires_at=d.expires_at,
+            issue=issue_to_response(d.issue)
+        ))
+    return res
+
+@app.post("/api/volunteer/dispatch/{dispatch_id}/accept", tags=["Dispatch"])
+def accept_dispatch(dispatch_id: int, current_user: CurrentUser, db: DB):
+    if current_user.role != UserRole.VOLUNTEER:
+        raise HTTPException(status_code=403, detail="Only volunteers.")
+
+    dispatch = db.query(DispatchRequestORM).filter(
+        DispatchRequestORM.id == dispatch_id,
+        DispatchRequestORM.volunteer_id == current_user.id
+    ).first()
+
+    if not dispatch or dispatch.status != "PENDING":
+        raise HTTPException(status_code=400, detail="Dispatch no longer available.")
+
+    # Check if issue is already claimed (race condition check)
+    issue = db.query(IssueORM).filter(IssueORM.id == dispatch.issue_id).first()
+    if issue.status != IssueStatus.OPEN:
+        # Someone else got it!
+        dispatch.status = "CANCELLED"
+        db.commit()
+        raise HTTPException(status_code=400, detail="Issue was already claimed by another volunteer.")
+
+    # Accept it
+    dispatch.status = "ACCEPTED"
+    issue.status = IssueStatus.IN_PROGRESS
+    issue.resolver_id = current_user.id
+
+    # Cancel other pending dispatches for this issue
+    db.query(DispatchRequestORM).filter(
+        DispatchRequestORM.issue_id == issue.id,
+        DispatchRequestORM.id != dispatch.id,
+        DispatchRequestORM.status == "PENDING"
+    ).update({"status": "CANCELLED"})
+
+    db.commit()
+    db.refresh(issue)
+    return issue_to_response(issue)
+
+@app.get("/api/volunteer/active-issue", response_model=Optional[IssueResponse], tags=["Dispatch"])
+def get_active_issue(current_user: CurrentUser, db: DB):
+    if current_user.role != UserRole.VOLUNTEER:
+        raise HTTPException(status_code=403, detail="Only volunteers.")
+
+    issue = db.query(IssueORM).filter(
+        IssueORM.resolver_id == current_user.id,
+        IssueORM.status == IssueStatus.IN_PROGRESS
+    ).first()
+
+    if not issue:
+        return None
+    return issue_to_response(issue)
+
+@app.post("/api/issues/{issue_id}/review", response_model=ReviewResponse, tags=["Reviews"])
+async def submit_review(
+    issue_id: int,
+    db: DB,
+    current_user: CurrentUser,
+    rating: int = Form(...),
+    review_text: str = Form(...),
+    after_image: Optional[UploadFile] = File(None)
+):
+    issue = db.query(IssueORM).filter(IssueORM.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    if issue.reporter_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only reporter can review.")
+    if issue.status != IssueStatus.RESOLVED:
+        raise HTTPException(status_code=400, detail="Issue must be resolved first.")
+    if not issue.resolver_id:
+        raise HTTPException(status_code=400, detail="No volunteer to review.")
+    
+    existing = db.query(ReviewORM).filter(ReviewORM.issue_id == issue_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Review already submitted.")
+
+    if rating < 1 or rating > 5:
+        raise HTTPException(status_code=400, detail="Rating must be 1-5.")
+
+    img_url = None
+    if after_image:
+        ext = os.path.splitext(after_image.filename or "")[1]
+        filename = f"after_{uuid.uuid4()}{ext}"
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        with open(filepath, "wb") as f:
+            f.write(await after_image.read())
+        img_url = f"/uploads/{filename}"
+
+    review = ReviewORM(
+        issue_id=issue_id,
+        reviewer_id=current_user.id,
+        volunteer_id=issue.resolver_id,
+        rating=rating,
+        review_text=review_text,
+        after_image_url=img_url
+    )
+    db.add(review)
+
+    # Update volunteer impact score (rolling avg)
+    vol = db.query(UserORM).filter(UserORM.id == issue.resolver_id).first()
+    if vol:
+        # Quick avg calculation: assume total_resolved is accurate
+        n = max(vol.total_resolved or 1, 1)
+        current_impact = vol.impact_score or 5.0
+        new_impact = ((current_impact * (n - 1)) + rating) / n
+        vol.impact_score = new_impact
+
+    db.commit()
+    db.refresh(review)
+    return review
+
+@app.get("/api/issues/{issue_id}/review", response_model=Optional[ReviewResponse], tags=["Reviews"])
+def get_review(issue_id: int, db: DB):
+    review = db.query(ReviewORM).filter(ReviewORM.issue_id == issue_id).first()
+    if not review:
+        return None
+    return review
+
 # ═══════════════════════════════════════════════════════════════
 # ROUTER: /api/match
 # ═══════════════════════════════════════════════════════════════
@@ -1103,6 +1410,205 @@ def assign_issue_to_ngo(issue_id: int, current_user: CurrentUser, db: DB):
     db.commit()
     db.refresh(issue)
     return issue_to_response(issue)
+
+@app.post("/api/ngo/issues/{issue_id}/assign-member", tags=["NGO"])
+def force_assign_to_member(issue_id: int, volunteer_id: int, current_user: CurrentUser, db: DB):
+    """Force assign an issue to a specific volunteer (NGO override)"""
+    if current_user.role != UserRole.NGO:
+        raise HTTPException(status_code=403, detail="NGO access only.")
+
+    issue = db.query(IssueORM).filter(IssueORM.id == issue_id).first()
+    if not issue or issue.status != IssueStatus.OPEN:
+        raise HTTPException(status_code=400, detail="Issue not available.")
+    
+    vol = db.query(UserORM).filter(UserORM.id == volunteer_id, UserORM.role == UserRole.VOLUNTEER).first()
+    if not vol:
+        raise HTTPException(status_code=404, detail="Volunteer not found.")
+
+    # Cancel any pending dispatches for this issue
+    db.query(DispatchRequestORM).filter(
+        DispatchRequestORM.issue_id == issue_id,
+        DispatchRequestORM.status == "PENDING"
+    ).update({"status": "CANCELLED"})
+
+    # Force create an ACCEPTED dispatch
+    d = DispatchRequestORM(
+        issue_id=issue_id,
+        volunteer_id=volunteer_id,
+        score=1.0,
+        status="ACCEPTED",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1)
+    )
+    db.add(d)
+
+    issue.status = IssueStatus.IN_PROGRESS
+    issue.resolver_id = volunteer_id
+    db.commit()
+    return {"message": f"Assigned to {vol.full_name}"}
+
+@app.get("/api/ngo/discover-volunteers", response_model=list[NGOMemberStats], tags=["NGO"])
+def discover_independent_volunteers(current_user: CurrentUser, db: DB, city: Optional[str] = None):
+    if current_user.role != UserRole.NGO:
+        raise HTTPException(status_code=403, detail="NGO access only.")
+
+    q = db.query(UserORM).filter(
+        UserORM.role == UserRole.VOLUNTEER, 
+        UserORM.is_active == True,
+        UserORM.ngo_status.is_(None) # Independent
+    )
+    if city:
+        q = q.filter(func.lower(UserORM.city).contains(city.lower()))
+
+    # Sort by impact score desc
+    vols = q.order_by(UserORM.impact_score.desc()).limit(20).all()
+
+    return [
+        NGOMemberStats(
+            volunteer_id=v.id,
+            volunteer_name=v.full_name,
+            total_resolved=v.total_resolved or 0,
+            skills=v.skills,
+            impact_score=v.impact_score or 0.0
+        ) for v in vols
+    ]
+
+@app.post("/api/ngo/membership/invite", tags=["NGO"])
+def invite_volunteer(volunteer_id: int, current_user: CurrentUser, db: DB):
+    if current_user.role != UserRole.NGO:
+        raise HTTPException(status_code=403, detail="NGO access only.")
+
+    vol = db.query(UserORM).filter(UserORM.id == volunteer_id).first()
+    if not vol:
+        raise HTTPException(status_code=404, detail="Volunteer not found.")
+
+    existing = db.query(NGOMembershipRequestORM).filter(
+        NGOMembershipRequestORM.volunteer_id == volunteer_id,
+        NGOMembershipRequestORM.ngo_id == current_user.id
+    ).first()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="Request already exists.")
+
+    req = NGOMembershipRequestORM(
+        volunteer_id=volunteer_id,
+        ngo_id=current_user.id,
+        initiated_by="NGO",
+        status="PENDING"
+    )
+    db.add(req)
+    db.commit()
+    return {"message": "Invite sent."}
+
+@app.post("/api/ngo/membership/apply", tags=["NGO"])
+def apply_to_ngo(ngo_id: int, current_user: CurrentUser, db: DB):
+    if current_user.role != UserRole.VOLUNTEER:
+        raise HTTPException(status_code=403, detail="Only volunteers can apply.")
+
+    ngo = db.query(UserORM).filter(UserORM.id == ngo_id, UserORM.role == UserRole.NGO).first()
+    if not ngo:
+        raise HTTPException(status_code=404, detail="NGO not found.")
+
+    existing = db.query(NGOMembershipRequestORM).filter(
+        NGOMembershipRequestORM.volunteer_id == current_user.id,
+        NGOMembershipRequestORM.ngo_id == ngo_id
+    ).first()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="Request already exists.")
+
+    req = NGOMembershipRequestORM(
+        volunteer_id=current_user.id,
+        ngo_id=ngo_id,
+        initiated_by="VOLUNTEER",
+        status="PENDING"
+    )
+    db.add(req)
+    db.commit()
+    return {"message": "Application sent."}
+
+@app.get("/api/ngo/membership/requests", response_model=list[NGOMembershipRequestResponse], tags=["NGO"])
+def get_membership_requests(current_user: CurrentUser, db: DB):
+    if current_user.role == UserRole.NGO:
+        reqs = db.query(NGOMembershipRequestORM).filter(
+            NGOMembershipRequestORM.ngo_id == current_user.id,
+            NGOMembershipRequestORM.status == "PENDING"
+        ).all()
+    elif current_user.role == UserRole.VOLUNTEER:
+        reqs = db.query(NGOMembershipRequestORM).filter(
+            NGOMembershipRequestORM.volunteer_id == current_user.id,
+            NGOMembershipRequestORM.status == "PENDING"
+        ).all()
+    else:
+        raise HTTPException(status_code=403, detail="Not authorized.")
+
+    res = []
+    for r in reqs:
+        vol = db.query(UserORM).filter(UserORM.id == r.volunteer_id).first()
+        ngo = db.query(UserORM).filter(UserORM.id == r.ngo_id).first()
+        if vol and ngo:
+            res.append(NGOMembershipRequestResponse(
+                id=r.id,
+                volunteer_id=r.volunteer_id,
+                volunteer_name=vol.full_name,
+                ngo_id=r.ngo_id,
+                ngo_name=ngo.full_name,
+                initiated_by=r.initiated_by,
+                status=r.status,
+                created_at=r.created_at
+            ))
+    return res
+
+@app.post("/api/ngo/membership/{req_id}/approve", tags=["NGO"])
+def approve_membership(req_id: int, current_user: CurrentUser, db: DB):
+    req = db.query(NGOMembershipRequestORM).filter(NGOMembershipRequestORM.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found.")
+
+    if current_user.role == UserRole.NGO and req.ngo_id == current_user.id and req.initiated_by == "VOLUNTEER":
+        pass
+    elif current_user.role == UserRole.VOLUNTEER and req.volunteer_id == current_user.id and req.initiated_by == "NGO":
+        pass
+    else:
+        raise HTTPException(status_code=403, detail="Not authorized to approve this request.")
+
+    req.status = "APPROVED"
+    vol = db.query(UserORM).filter(UserORM.id == req.volunteer_id).first()
+    if vol:
+        vol.ngo_status = "APPROVED"
+        vol.org_name = str(req.ngo_id) # Store NGO ID or Name as per design
+
+    # Auto-reject other pending requests for this volunteer
+    db.query(NGOMembershipRequestORM).filter(
+        NGOMembershipRequestORM.volunteer_id == req.volunteer_id,
+        NGOMembershipRequestORM.id != req_id,
+        NGOMembershipRequestORM.status == "PENDING"
+    ).update({"status": "REJECTED"})
+
+    db.commit()
+    return {"message": "Membership approved."}
+
+@app.get("/api/ngo/members/activity", response_model=list[IssueResponse], tags=["NGO"])
+def get_members_activity(current_user: CurrentUser, db: DB):
+    if current_user.role != UserRole.NGO:
+        raise HTTPException(status_code=403, detail="NGO access only.")
+
+    # Find volunteers belonging to this NGO
+    members = db.query(UserORM).filter(
+        UserORM.role == UserRole.VOLUNTEER,
+        UserORM.ngo_status == "APPROVED",
+        UserORM.org_name == str(current_user.id)
+    ).all()
+    
+    if not members:
+        return []
+
+    member_ids = [m.id for m in members]
+    
+    issues = db.query(IssueORM).filter(
+        IssueORM.resolver_id.in_(member_ids)
+    ).order_by(IssueORM.updated_at.desc()).limit(50).all()
+
+    return [issue_to_response(i) for i in issues]
 
 
 @app.get("/api/ngo/stats", tags=["NGO"])
