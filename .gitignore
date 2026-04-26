@@ -24,4 +24,4 @@ dist-ssr
 *.sw?
 .venv/
 weave.db
-__pycache__/main.cpython-311.pyc
+__pycache__/
