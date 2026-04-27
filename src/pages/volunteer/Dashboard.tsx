@@ -45,6 +45,7 @@ export default function VolunteerDashboard() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [activeDispatchId, setActiveDispatchId] = useState<number | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<typeof matched[0] | null>(null);
 
   const { data: me } = useQuery({
     queryKey: ["users", "me"],
@@ -153,7 +154,7 @@ export default function VolunteerDashboard() {
             <div className="space-y-3">
               {matched.length === 0 && <p className="text-sm text-muted-foreground">No matches found nearby.</p>}
               {matched.map(m => (
-                <Card key={m.issue.id} className="p-4 flex gap-4 items-center soft-card border-0">
+                <Card key={m.issue.id} className="p-4 flex gap-4 items-center soft-card border-0 cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedMatch(m)}>
                   {m.issue.image_url ? (
                     <img src={m.issue.image_url} alt="" className="w-16 h-16 rounded-xl object-cover" />
                   ) : (
@@ -166,9 +167,48 @@ export default function VolunteerDashboard() {
                     <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="w-3 h-3" />{m.issue.city || "Nearby"}</p>
                   </div>
                   <Badge variant="secondary">{m.issue.category}</Badge>
-                  <Button size="sm" variant="outline" onClick={() => navigate('/volunteer/discover')}>View</Button>
                 </Card>
               ))}
+
+              {/* Matched Issue Detail Modal */}
+              <Dialog open={!!selectedMatch} onOpenChange={(open) => !open && setSelectedMatch(null)}>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle className="font-display text-2xl">{selectedMatch?.issue.title}</DialogTitle>
+                    <DialogDescription className="flex items-center gap-1 pt-1">
+                      <MapPin className="w-3 h-3" />{selectedMatch?.issue.address || selectedMatch?.issue.city}
+                    </DialogDescription>
+                  </DialogHeader>
+                  {selectedMatch && (
+                    <div className="space-y-4">
+                      {selectedMatch.issue.image_url && (
+                        <img src={selectedMatch.issue.image_url} alt="" className="w-full h-48 object-cover rounded-xl" />
+                      )}
+                      <div className="flex gap-2">
+                        <Badge variant="secondary">{selectedMatch.issue.category}</Badge>
+                        <Badge variant="secondary">{selectedMatch.issue.category}</Badge>                      </div>
+                      {selectedMatch.issue.description && (
+                        <p className="text-sm text-muted-foreground">{selectedMatch.issue.description}</p>
+                      )}
+                      <Button
+                        className="w-full gap-2"
+                        onClick={() => {
+                          const dispatch = pendingDispatches.find(d => d.issue.id === selectedMatch.issue.id);
+                          if (dispatch) {
+                            acceptMutation.mutate(dispatch.id);
+                            setSelectedMatch(null);
+                          } else {
+                            navigate('/volunteer/discover');
+                          }
+                        }}
+                        disabled={acceptMutation.isPending}
+                      >
+                        {acceptMutation.isPending ? "Accepting..." : <><Check className="w-4 h-4" /> Accept & Claim Issue</>}
+                      </Button>
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
         </div>

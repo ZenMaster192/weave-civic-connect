@@ -4,8 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ngoApi } from "@/services/api";
 import { useQuery } from "@tanstack/react-query";
-import { MOCK_NGO_MEMBERS } from "@/lib/mockData";
-import { Trophy } from "lucide-react";
 
 const TIER_BG: Record<string, string> = {
   Seed: "bg-pastel-green",

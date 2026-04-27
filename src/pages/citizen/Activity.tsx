@@ -15,7 +15,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -30,6 +29,7 @@ type UI_Issue = Issue;
 
 const IssueCard = ({ issue }: { issue: UI_Issue }) => {
   const queryClient = useQueryClient();
+  const [detailOpen, setDetailOpen] = useState(false);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
@@ -50,7 +50,7 @@ const IssueCard = ({ issue }: { issue: UI_Issue }) => {
 
   return (
     <>
-  <Card className="overflow-hidden soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
+    <Card onClick={() => setDetailOpen(true)} className="overflow-hidden soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
     <div className="grid md:grid-cols-[180px_1fr] gap-0">
       <div className="relative h-44 md:h-full">
         <img src={issue.image_url} alt={issue.title} className="w-full h-full object-cover" />
@@ -95,8 +95,45 @@ const IssueCard = ({ issue }: { issue: UI_Issue }) => {
         )}
   </div>
     </div>
-  </Card>
-
+ </Card>
+    <Dialog open={detailOpen} onOpenChange={setDetailOpen}>      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl">{issue.title}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className={`grid ${issue.proof_url ? "grid-cols-2" : "grid-cols-1"} gap-2 rounded-xl overflow-hidden max-h-60`}>
+            <img src={issue.image_url} alt={issue.title} className="w-full h-full object-cover" />
+            {issue.proof_url && <img src={issue.proof_url} alt="Proof" className="w-full h-full object-cover" />}
+          </div>
+          <div className="flex items-center justify-between">
+            <Badge className={`${STATUS_COLOR[issue.status]} capitalize border-0`}>{issue.status.replace("_", " ")}</Badge>
+            <p className="text-xs text-muted-foreground">{new Date(issue.created_at).toLocaleDateString()}</p>
+          </div>
+          <p className="text-sm text-muted-foreground">{issue.description}</p>
+          <p className="text-sm">📍 {issue.address || issue.city}</p>
+          {issue.status === "resolved" && (
+            <div className="border-t border-border pt-3 space-y-2">
+              <p className="text-sm">Resolved by <span className="text-primary font-medium">{issue.resolver_name}</span></p>
+              {review ? (
+                <div className="flex items-center gap-1 text-sm">
+                  {[1,2,3,4,5].map(n => (
+                    <Star key={n} className={`w-4 h-4 ${n <= review.rating ? "fill-accent text-accent" : "text-muted-foreground"}`} />
+                  ))}
+                  <span className="ml-2 text-muted-foreground italic">"{review.review_text}"</span>
+                </div>
+              ) : (
+                <Button size="sm" onClick={() => { setDetailOpen(false); setReviewModalOpen(true); }} className="gap-2">
+                  <Star className="w-4 h-4" /> Review Volunteer
+                </Button>
+              )}
+            </div>
+          )}
+          {issue.status !== "resolved" && issue.resolver_name && (
+            <p className="text-sm">👷 Assigned to <b>{issue.resolver_name}</b></p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   <Dialog open={reviewModalOpen} onOpenChange={setReviewModalOpen}>
       <DialogContent>
           <DialogHeader>
