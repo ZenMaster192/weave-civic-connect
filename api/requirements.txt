@@ -5,3 +5,4 @@ pydantic
 passlib
 PyJWT
 python-multipart
+psycopg2-binary
