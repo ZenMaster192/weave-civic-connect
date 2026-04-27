@@ -16,6 +16,9 @@ import NgoDashboard from "./pages/ngo/Dashboard.tsx";
 import Members from "./pages/ngo/Members.tsx";
 import Approvals from "./pages/ngo/Approvals.tsx";
 import NgoActivity from "./pages/ngo/Activity.tsx";
+import CitizenProfile  from "@/pages/citizen/ProfilePage.tsx";
+import VolunteerProfile from "@/pages/volunteer/ProfilePage.tsx";
+import NgoProfile from "@/pages/ngo/ProfilePage.tsx";
 
 const queryClient = new QueryClient();
 
@@ -41,6 +44,10 @@ const App = () => (
           <Route path="/ngo/members" element={<Members />} />
           <Route path="/ngo/approvals" element={<Approvals />} />
           <Route path="/ngo/activity" element={<NgoActivity />} />
+
+          <Route path="/citizen/profile"  element={<CitizenProfile />} />
+          <Route path="/volunteer/profile" element={<VolunteerProfile />} />
+          <Route path="/ngo/profile"       element={<NgoProfile />} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>

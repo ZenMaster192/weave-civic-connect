@@ -3,10 +3,14 @@ from __future__ import annotations
 import math
 import os
 import random
+import re
+import re
 import smtplib
 import string
 import sys
 import uuid
+from collections import defaultdict
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -20,17 +24,19 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from jwt import encode, decode
 from jwt.exceptions import DecodeError as JWTError
 from passlib.context import CryptContext
-from pydantic import BaseModel
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, UniqueConstraint
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import (
     Boolean,
     Column,
@@ -40,6 +46,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     func,
 )
@@ -67,6 +74,10 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Weave")
 EMAIL_ENABLED = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
 
 OTP_EXPIRE_MINUTES = int(os.getenv("OTP_EXPIRE_MINUTES", "10"))
+
+# ── Economic value of volunteer hour (USD equivalent for India civic work) ──
+VOLUNTEER_HOUR_VALUE_INR = float(os.getenv("VOLUNTEER_HOUR_VALUE_INR", "150.0"))
+AVG_HOURS_PER_RESOLVED_TASK = float(os.getenv("AVG_HOURS_PER_RESOLVED_TASK", "3.5"))
 
 # ── CORS config ──────────────────────────────────────────────
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "")
@@ -137,6 +148,11 @@ class UserORM(Base):
     bio = Column(Text, nullable=True)
     total_resolved = Column(Integer, default=0)
 
+    # XP and engagement tracking for volunteer CRM
+    xp_points = Column(Integer, default=0)
+    last_activity_at = Column(DateTime, nullable=True)
+    total_hours_contributed = Column(Float, default=0.0)
+
     org_name = Column(String(255), nullable=True)
     ngo_status = Column(String(20), nullable=True)
     ngo_document_url = Column(String(512), nullable=True)
@@ -175,6 +191,9 @@ class IssueORM(Base):
     description = Column(Text, nullable=False)
     category = Column(String(100), nullable=False)
     status = Column(String(20), default=IssueStatus.OPEN)
+
+    # Priority score: computed by AI triage, stored for persistence
+    priority_score = Column(Float, default=0.0)
 
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
@@ -272,10 +291,18 @@ def verify_otp(plain_otp: str, hashed_otp: str) -> bool:
 # FastAPI app + CORS
 # ─────────────────────────────────────────────────────────────
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup/shutdown events."""
+    seed_database()
+    yield
+
+
 app = FastAPI(
     title="Weave Civic Connect API",
     version="1.0.0",
     description="Tri-interface civic problem reporting and resolution platform.",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -289,6 +316,17 @@ app.add_middleware(
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# Mount static files and templates for the NGO dashboard
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+os.makedirs(STATIC_DIR, exist_ok=True)
+os.makedirs(TEMPLATES_DIR, exist_ok=True)
+
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
 
 # ─────────────────────────────────────────────────────────────
 # Email utilities
@@ -301,7 +339,6 @@ def generate_otp() -> str:
 
 def send_verification_email(to_email: str, full_name: str, otp: str) -> None:
     if not EMAIL_ENABLED:
-        # Force flush so it always appears in uvicorn terminal immediately
         print("\n" + "=" * 60, flush=True)
         print(f"[Weave DEV] OTP for {to_email}", flush=True)
         print(f"  >>> OTP CODE: {otp} <<<  (valid for {OTP_EXPIRE_MINUTES} min)", flush=True)
@@ -367,8 +404,269 @@ def create_and_store_otp(user_id: int, email: str, db: Session) -> str:
 
 
 # ─────────────────────────────────────────────────────────────
+# ██████████████████████████████████████████████████████████
+# AI TRIAGE ENGINE  (zero external ML deps — pure Python NLP)
+# ██████████████████████████████████████████████████████████
+# ─────────────────────────────────────────────────────────────
+
+# Urgency lexicon: keyword → weight multiplier
+_URGENCY_LEXICON: dict[str, float] = {
+    # Life/safety critical
+    "injury": 3.0, "injured": 3.0, "dead": 3.5, "death": 3.5, "accident": 2.8,
+    "bleeding": 3.2, "fire": 3.5, "gas leak": 3.5, "electrocution": 3.5,
+    "collapse": 3.2, "flood": 2.9, "flooding": 2.9, "overflow": 2.2,
+    "dangerous": 2.5, "hazardous": 2.5, "unsafe": 2.3, "emergency": 3.0,
+    "urgent": 2.5, "critical": 2.7, "immediate": 2.4, "severe": 2.3,
+    # Infrastructure
+    "broken": 1.8, "damaged": 1.7, "blocked": 1.9, "clogged": 1.8,
+    "pothole": 1.6, "sewage": 2.1, "stench": 1.9, "smell": 1.5,
+    "dark": 1.7, "no light": 2.0, "no water": 2.2, "power cut": 2.0,
+    # Time signals
+    "days": 1.4, "weeks": 1.7, "month": 2.0, "months": 2.2, "years": 2.5,
+    # Crowd/scale
+    "many": 1.3, "everyone": 1.5, "whole": 1.4, "entire": 1.5,
+    "children": 2.0, "elderly": 2.0, "school": 2.0, "hospital": 2.5,
+}
+
+# Category base urgency (pre-seeded civic knowledge)
+_CATEGORY_BASE: dict[str, float] = {
+    "Animal Rescue": 0.55,
+    "Electrical": 0.65,
+    "Flooding": 0.80,
+    "Road Repair": 0.50,
+    "Sanitation": 0.60,
+    "Water Supply": 0.70,
+    "Fire Hazard": 0.90,
+    "Gas Leak": 0.95,
+    "Medical": 0.85,
+    "Tree Fall": 0.75,
+    "Noise Pollution": 0.30,
+    "Illegal Construction": 0.40,
+    "Encroachment": 0.35,
+}
+
+
+def compute_urgency_score(
+    title: str,
+    description: str,
+    category: str,
+    created_at: datetime,
+    status: str,
+) -> float:
+    """
+    Returns a normalized urgency score [0.0, 1.0].
+
+    Algorithm (inverted-pyramid weighted):
+      1. Category base score         → 25%
+      2. NLP keyword scan            → 40%
+      3. Age decay (older = more urgent if unresolved) → 20%
+      4. Status signal               → 15%
+    """
+    # 1. Category base
+    cat_score = _CATEGORY_BASE.get(category, 0.45)
+
+    # 2. NLP keyword scan on title + description
+    text = f"{title} {description}".lower()
+    # Tokenize: split on non-alphanumeric, also check bigrams
+    tokens = re.findall(r"\b\w+\b", text)
+    bigrams = [f"{tokens[i]} {tokens[i+1]}" for i in range(len(tokens) - 1)]
+    all_terms = tokens + bigrams
+
+    keyword_hits: list[float] = []
+    for term in all_terms:
+        if term in _URGENCY_LEXICON:
+            keyword_hits.append(_URGENCY_LEXICON[term])
+
+    if keyword_hits:
+        # Use top-3 weighted average (diminishing returns)
+        keyword_hits.sort(reverse=True)
+        top = keyword_hits[:3]
+        nlp_raw = sum(w * (0.6 ** i) for i, w in enumerate(top))
+        # Normalize: max possible ≈ 3.5 + 3.5*0.6 + 3.5*0.36 ≈ 8.26
+        nlp_score = min(nlp_raw / 8.26, 1.0)
+    else:
+        nlp_score = 0.2  # neutral baseline
+
+    # 3. Age decay — unresolved issues grow more urgent over time
+    now = datetime.now(timezone.utc)
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    age_hours = max((now - created_at).total_seconds() / 3600, 0)
+    # Logarithmic growth: saturates at ~720h (30 days)
+    age_score = min(math.log1p(age_hours) / math.log1p(720), 1.0)
+
+    # 4. Status signal
+    status_weights = {
+        IssueStatus.OPEN: 1.0,
+        IssueStatus.IN_PROGRESS: 0.5,
+        IssueStatus.RESOLVED: 0.0,
+    }
+    status_score = status_weights.get(status, 0.5)
+
+    final = (
+        cat_score * 0.25
+        + nlp_score * 0.40
+        + age_score * 0.20
+        + status_score * 0.15
+    )
+    return round(min(max(final, 0.0), 1.0), 4)
+
+
+def get_urgency_label(score: float) -> str:
+    if score >= 0.75:
+        return "CRITICAL"
+    elif score >= 0.55:
+        return "HIGH"
+    elif score >= 0.35:
+        return "MEDIUM"
+    return "LOW"
+
+
+# ─────────────────────────────────────────────────────────────
+# ██████████████████████████████████████████████████████████
+# VOLUNTEER CHURN RISK ENGINE (engagement velocity model)
+# ██████████████████████████████████████████████████████████
+# ─────────────────────────────────────────────────────────────
+
+
+def compute_churn_risk(volunteer: UserORM) -> dict:
+    """
+    Returns churn risk score [0.0, 1.0] and label.
+
+    Engagement velocity model:
+      - Days since last activity (recency)
+      - Resolved tasks trend (frequency)
+      - XP accumulation rate
+      - Account age normalization
+    """
+    now = datetime.now(timezone.utc)
+
+    created_at = volunteer.created_at
+    if created_at and created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    account_age_days = max((now - created_at).total_seconds() / 86400, 1) if created_at else 30
+
+    # Recency score — penalizes long gaps
+    last_active = volunteer.last_activity_at
+    if last_active:
+        if last_active.tzinfo is None:
+            last_active = last_active.replace(tzinfo=timezone.utc)
+        days_since_active = (now - last_active).total_seconds() / 86400
+    else:
+        # Never active beyond account creation → high churn signal
+        days_since_active = account_age_days
+
+    # Recency risk: 0 = very active, 1 = totally inactive
+    recency_risk = min(days_since_active / 60, 1.0)  # 60 days = full churn
+
+    # Frequency score — total resolved vs account age
+    total_resolved = volunteer.total_resolved or 0
+    expected_resolved = account_age_days / 14  # expect ~2 tasks/month baseline
+    frequency_ratio = total_resolved / max(expected_resolved, 1)
+    frequency_risk = max(0.0, 1.0 - min(frequency_ratio, 1.0))
+
+    # XP risk — low XP relative to account age
+    xp = volunteer.xp_points or 0
+    expected_xp = account_age_days * 5  # 5 XP/day baseline
+    xp_ratio = xp / max(expected_xp, 1)
+    xp_risk = max(0.0, 1.0 - min(xp_ratio, 1.0))
+
+    # Weighted composite
+    churn_score = (
+        recency_risk * 0.50
+        + frequency_risk * 0.30
+        + xp_risk * 0.20
+    )
+    churn_score = round(min(max(churn_score, 0.0), 1.0), 4)
+
+    if churn_score >= 0.70:
+        label = "HIGH RISK"
+    elif churn_score >= 0.40:
+        label = "AT RISK"
+    else:
+        label = "HEALTHY"
+
+    # XP tier
+    if xp >= 500:
+        xp_tier = "GOLD"
+    elif xp >= 200:
+        xp_tier = "SILVER"
+    elif xp >= 50:
+        xp_tier = "BRONZE"
+    else:
+        xp_tier = "RECRUIT"
+
+    return {
+        "churn_score": churn_score,
+        "churn_label": label,
+        "recency_risk": round(recency_risk, 3),
+        "frequency_risk": round(frequency_risk, 3),
+        "xp_risk": round(xp_risk, 3),
+        "xp_tier": xp_tier,
+        "days_since_active": round(days_since_active, 1),
+    }
+
+
+# ─────────────────────────────────────────────────────────────
 # Startup seed
 # ─────────────────────────────────────────────────────────────
+
+_CITIES_PUNE = [
+    ("Koregaon Park", 18.5362, 73.8939),
+    ("Aundh", 18.5590, 73.8076),
+    ("Kothrud", 18.5074, 73.8077),
+    ("Hadapsar", 18.5018, 73.9259),
+    ("Viman Nagar", 18.5679, 73.9143),
+    ("Baner", 18.5601, 73.7875),
+    ("Wakad", 18.5984, 73.7626),
+    ("Magarpatta", 18.5118, 73.9303),
+    ("Shivajinagar", 18.5308, 73.8474),
+    ("Camp Area", 18.5132, 73.8772),
+    ("Deccan", 18.5167, 73.8489),
+    ("Katraj", 18.4563, 73.8632),
+    ("Pimpri", 18.6279, 73.7997),
+    ("Chinchwad", 18.6380, 73.8026),
+    ("Kondhwa", 18.4726, 73.8855),
+]
+
+_CATEGORIES = [
+    "Sanitation", "Road Repair", "Electrical", "Water Supply",
+    "Flooding", "Animal Rescue", "Tree Fall", "Noise Pollution",
+    "Illegal Construction", "Encroachment", "Fire Hazard",
+]
+
+_ISSUE_TEMPLATES = [
+    ("Overflowing garbage near {loc}", "Pile of garbage uncleared for {n} days, attracting stray animals and spreading disease."),
+    ("Broken streetlight on {loc}", "Streetlight has been out for {n} weeks. Residents fear crime and accidents at night."),
+    ("Dangerous pothole at {loc}", "Large pothole causing accidents to two-wheelers near the school entrance."),
+    ("Stray dog injured at {loc}", "Injured stray dog limping, needs urgent rescue and veterinary care."),
+    ("Sewage overflow on {loc}", "Raw sewage overflowing onto road for {n} days. Unbearable stench and health hazard."),
+    ("Flooded underpass at {loc}", "Underpass completely submerged. Vehicles and pedestrians unable to pass."),
+    ("Illegal dumping at {loc}", "Contractor dumping construction debris on public road for {n} weeks."),
+    ("Water supply disrupted in {loc}", "No water supply for {n} days. Residents struggling severely."),
+    ("Tree fallen on {loc}", "Large tree blocking road and power lines after last night's storm."),
+    ("Encroachment on footpath {loc}", "Shopkeeper has permanently blocked footpath forcing pedestrians onto road."),
+    ("Gas leak smell near {loc}", "Strong gas smell reported by multiple residents. Potential explosion risk."),
+    ("Open manhole at {loc}", "Manhole cover missing for {n} days. Extremely dangerous at night."),
+]
+
+_SKILLS_POOL = [
+    "Waste Management", "Sanitation", "Community Outreach",
+    "Road Repair", "Construction", "Electrical", "Plumbing",
+    "Animal Rescue", "Healthcare", "First Aid", "Counselling",
+    "Legal Aid", "Environmental Management", "Water Management",
+]
+
+_VOLUNTEER_NAMES = [
+    ("Ravi Kumar", "ravi@example.com"),
+    ("Priya Shah", "priya@example.com"),
+    ("Arjun Nair", "arjun@example.com"),
+    ("Meera Joshi", "meera@example.com"),
+    ("Suresh Patil", "suresh@example.com"),
+    ("Kavya Iyer", "kavya@example.com"),
+    ("Deepak Reddy", "deepak@example.com"),
+    ("Ananya Singh", "ananya@example.com"),
+]
 
 
 def seed_database():
@@ -377,6 +675,9 @@ def seed_database():
         if db.query(UserORM).count() > 0:
             return
 
+        now = datetime.now(timezone.utc)
+
+        # ── Citizens ──────────────────────────────────────────
         citizen1 = UserORM(
             email="anjali@example.com",
             hashed_password=hash_password("password123"),
@@ -384,6 +685,7 @@ def seed_database():
             role=UserRole.CITIZEN,
             is_email_verified=True,
             latitude=18.5204, longitude=73.8567, city="Pune",
+            created_at=now - timedelta(days=90),
         )
         citizen2 = UserORM(
             email="rahul@example.com",
@@ -392,28 +694,116 @@ def seed_database():
             role=UserRole.CITIZEN,
             is_email_verified=True,
             latitude=18.4810, longitude=73.8533, city="Pune",
+            created_at=now - timedelta(days=60),
         )
-        volunteer1 = UserORM(
-            email="ravi@example.com",
-            hashed_password=hash_password("password123"),
-            full_name="Ravi Kumar",
-            role=UserRole.VOLUNTEER,
-            is_email_verified=True,
-            skills="Waste Management,Sanitation,Community Outreach",
-            bio="Field lead with 3 years of civic volunteering.",
-            total_resolved=12,
-            latitude=18.5204, longitude=73.8567, city="Pune",
-        )
-        volunteer2 = UserORM(
-            email="priya@example.com",
-            hashed_password=hash_password("password123"),
-            full_name="Priya Shah",
-            role=UserRole.VOLUNTEER,
-            is_email_verified=True,
-            skills="Road Repair,Construction",
-            total_resolved=8,
-            latitude=18.5362, longitude=73.8939, city="Pune",
-        )
+
+        # ── Volunteers (rich engagement data) ─────────────────
+        volunteers_data = [
+            {
+                "name": "Ravi Kumar", "email": "ravi@example.com",
+                "skills": "Waste Management,Sanitation,Community Outreach",
+                "bio": "Field lead with 3 years of civic volunteering.",
+                "total_resolved": 28,
+                "xp_points": 840,
+                "last_activity_days_ago": 2,
+                "account_age_days": 180,
+                "lat": 18.5204, "lng": 73.8567,
+            },
+            {
+                "name": "Priya Shah", "email": "priya@example.com",
+                "skills": "Road Repair,Construction",
+                "bio": "Civil engineer volunteering on weekends.",
+                "total_resolved": 14,
+                "xp_points": 420,
+                "last_activity_days_ago": 8,
+                "account_age_days": 120,
+                "lat": 18.5362, "lng": 73.8939,
+            },
+            {
+                "name": "Arjun Nair", "email": "arjun@example.com",
+                "skills": "Electrical,Plumbing",
+                "bio": "Electrician helping with civic infrastructure.",
+                "total_resolved": 9,
+                "xp_points": 270,
+                "last_activity_days_ago": 25,
+                "account_age_days": 90,
+                "lat": 18.5590, "lng": 73.8076,
+            },
+            {
+                "name": "Meera Joshi", "email": "meera@example.com",
+                "skills": "Animal Rescue,Healthcare,First Aid",
+                "bio": "Veterinary nurse and animal welfare activist.",
+                "total_resolved": 31,
+                "xp_points": 930,
+                "last_activity_days_ago": 1,
+                "account_age_days": 200,
+                "lat": 18.5018, "lng": 73.9259,
+            },
+            {
+                "name": "Suresh Patil", "email": "suresh@example.com",
+                "skills": "Community Outreach,Legal Aid",
+                "bio": "Retired government officer supporting local governance.",
+                "total_resolved": 6,
+                "xp_points": 180,
+                "last_activity_days_ago": 45,
+                "account_age_days": 150,
+                "lat": 18.5679, "lng": 73.9143,
+            },
+            {
+                "name": "Kavya Iyer", "email": "kavya@example.com",
+                "skills": "Environmental Management,Water Management,Sanitation",
+                "bio": "Environmental science graduate.",
+                "total_resolved": 19,
+                "xp_points": 570,
+                "last_activity_days_ago": 5,
+                "account_age_days": 130,
+                "lat": 18.5601, "lng": 73.7875,
+            },
+            {
+                "name": "Deepak Reddy", "email": "deepak@example.com",
+                "skills": "Road Repair,Construction,Community Outreach",
+                "bio": "Construction supervisor volunteering on infrastructure.",
+                "total_resolved": 3,
+                "xp_points": 90,
+                "last_activity_days_ago": 60,
+                "account_age_days": 75,
+                "lat": 18.5984, "lng": 73.7626,
+            },
+            {
+                "name": "Ananya Singh", "email": "ananya@example.com",
+                "skills": "Counselling,Community Outreach,First Aid",
+                "bio": "Social worker and youth coordinator.",
+                "total_resolved": 22,
+                "xp_points": 660,
+                "last_activity_days_ago": 3,
+                "account_age_days": 160,
+                "lat": 18.5118, "lng": 73.9303,
+            },
+        ]
+
+        volunteer_objs = []
+        for vd in volunteers_data:
+            v = UserORM(
+                email=vd["email"],
+                hashed_password=hash_password("password123"),
+                full_name=vd["name"],
+                role=UserRole.VOLUNTEER,
+                is_email_verified=True,
+                skills=vd["skills"],
+                bio=vd["bio"],
+                total_resolved=vd["total_resolved"],
+                xp_points=vd["xp_points"],
+                last_activity_at=now - timedelta(days=vd["last_activity_days_ago"]),
+                total_hours_contributed=round(vd["total_resolved"] * AVG_HOURS_PER_RESOLVED_TASK, 1),
+                is_active=True,
+                latitude=vd["lat"],
+                longitude=vd["lng"],
+                city="Pune",
+                created_at=now - timedelta(days=vd["account_age_days"]),
+            )
+            volunteer_objs.append(v)
+
+        # ── NGO ───────────────────────────────────────────────
         ngo1 = UserORM(
             email="sara@greenpune.org",
             hashed_password=hash_password("password123"),
@@ -423,69 +813,70 @@ def seed_database():
             org_name="Green Pune Collective",
             ngo_status=NGOStatus.APPROVED,
             latitude=18.5204, longitude=73.8567, city="Pune",
+            created_at=now - timedelta(days=365),
         )
-        db.add_all([citizen1, citizen2, volunteer1, volunteer2, ngo1])
+
+        db.add_all([citizen1, citizen2] + volunteer_objs + [ngo1])
         db.flush()
 
-        issues = [
-            IssueORM(
-                title="Overflowing garbage near market",
-                description="Pile of garbage uncleared for 4 days, attracting stray dogs.",
-                category="Sanitation",
-                required_skills="Waste Management,Sanitation",
-                latitude=18.5204, longitude=73.8567,
-                address="MG Road Market", city="Pune",
-                status=IssueStatus.IN_PROGRESS,
-                reporter_id=citizen1.id,
-                resolver_id=volunteer1.id,
-            ),
-            IssueORM(
-                title="Broken streetlight on Lane 4",
-                description="Streetlight has been out for 2 weeks, road is unsafe at night.",
-                category="Electrical",
-                required_skills="Electrical",
-                latitude=18.5362, longitude=73.8939,
-                address="Koregaon Park Lane 4", city="Pune",
-                status=IssueStatus.OPEN,
-                reporter_id=citizen1.id,
-            ),
-            IssueORM(
-                title="Pothole near school entrance",
-                description="Large pothole causing daily accidents to scooter riders.",
-                category="Road Repair",
-                required_skills="Road Repair,Construction",
-                latitude=18.5590, longitude=73.8076,
-                address="Aundh Main Rd", city="Pune",
-                status=IssueStatus.RESOLVED,
-                reporter_id=citizen1.id,
-                resolver_id=volunteer2.id,
-                resolved_at=datetime.now(timezone.utc),
-            ),
-            IssueORM(
-                title="Stray dog injured near park",
-                description="Limping dog needs urgent rescue and vet care.",
-                category="Animal Rescue",
-                required_skills="Animal Rescue,Healthcare",
-                latitude=18.4810, longitude=73.8533,
-                address="Sahakar Nagar Park", city="Pune",
-                status=IssueStatus.OPEN,
-                reporter_id=citizen2.id,
-                assigned_ngo_id=ngo1.id,
-            ),
-        ]
+        # ── Issues (rich spread across Pune) ──────────────────
+        random.seed(42)
+        issues = []
+        statuses = [IssueStatus.OPEN, IssueStatus.IN_PROGRESS, IssueStatus.RESOLVED]
+        status_weights = [0.5, 0.3, 0.2]
+
+        for i, (loc_name, lat, lng) in enumerate(_CITIES_PUNE):
+            n_issues = random.randint(2, 5)
+            for j in range(n_issues):
+                tpl_title, tpl_desc = random.choice(_ISSUE_TEMPLATES)
+                category = random.choice(_CATEGORIES)
+                n_days = random.randint(1, 14)
+                title = tpl_title.format(loc=loc_name)
+                desc = tpl_desc.format(n=n_days, loc=loc_name)
+
+                # Jitter coordinates slightly so clusters look natural
+                jitter_lat = lat + random.uniform(-0.008, 0.008)
+                jitter_lng = lng + random.uniform(-0.008, 0.008)
+
+                chosen_status = random.choices(statuses, weights=status_weights)[0]
+                created_days_ago = random.randint(1, 45)
+                created = now - timedelta(days=created_days_ago)
+
+                resolver = random.choice(volunteer_objs) if chosen_status != IssueStatus.OPEN else None
+                resolved_at = created + timedelta(days=random.randint(1, 7)) if chosen_status == IssueStatus.RESOLVED else None
+
+                # Compute priority score
+                priority = compute_urgency_score(title, desc, category, created, chosen_status)
+
+                issue = IssueORM(
+                    title=title,
+                    description=desc,
+                    category=category,
+                    required_skills=random.choice(_SKILLS_POOL),
+                    latitude=jitter_lat,
+                    longitude=jitter_lng,
+                    address=f"{loc_name}, Pune",
+                    city="Pune",
+                    status=chosen_status,
+                    reporter_id=random.choice([citizen1.id, citizen2.id]),
+                    resolver_id=resolver.id if resolver else None,
+                    assigned_ngo_id=ngo1.id if random.random() > 0.4 else None,
+                    created_at=created,
+                    updated_at=created + timedelta(hours=random.randint(1, 48)),
+                    resolved_at=resolved_at,
+                    priority_score=priority,
+                )
+                issues.append(issue)
+
         db.add_all(issues)
         db.commit()
-        print("[Weave] Database seeded with demo data.", flush=True)
+        print(f"[Weave] Database seeded: {len(issues)} issues, {len(volunteer_objs)} volunteers.", flush=True)
     except Exception as e:
         db.rollback()
         print(f"[Weave] Seed failed: {e}", flush=True)
+        raise
     finally:
         db.close()
-
-
-@app.on_event("startup")
-def on_startup():
-    seed_database()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -590,6 +981,8 @@ class ResendOtpRequest(BaseModel):
 
 
 class UserProfile(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     uid: str
     email: str
@@ -605,9 +998,6 @@ class UserProfile(BaseModel):
     longitude: Optional[float] = None
     city: Optional[str] = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class UpdateProfileRequest(BaseModel):
@@ -631,6 +1021,8 @@ class IssueCreate(BaseModel):
 
 
 class IssueResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     uid: str
     title: str
@@ -653,9 +1045,6 @@ class IssueResponse(BaseModel):
     updated_at: datetime
     resolved_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
-
 
 class VolunteerMatchResponse(BaseModel):
     issue: IssueResponse
@@ -671,6 +1060,8 @@ class NGOMemberStats(BaseModel):
     impact_score: float = 0.0
 
 class DispatchRequestResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     issue_id: int
     volunteer_id: int
@@ -680,14 +1071,13 @@ class DispatchRequestResponse(BaseModel):
     expires_at: datetime
     issue: IssueResponse
 
-    class Config:
-        from_attributes = True
-
 class ReviewCreate(BaseModel):
     rating: int
     review_text: str
 
 class ReviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     issue_id: int
     reviewer_id: int
@@ -697,10 +1087,9 @@ class ReviewResponse(BaseModel):
     after_image_url: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
-
 class NGOMembershipRequestResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     volunteer_id: int
     volunteer_name: str
@@ -709,9 +1098,6 @@ class NGOMembershipRequestResponse(BaseModel):
     initiated_by: str
     status: str
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -801,7 +1187,7 @@ def register(body: RegisterRequest, db: DB):
         role=user.role,
         full_name=user.full_name,
         email=user.email,
-        is_email_verified=False,  # always false on register so UI shows OTP step
+        is_email_verified=False,
     )
 
 
@@ -945,6 +1331,11 @@ def create_issue(body: IssueCreate, current_user: CurrentUser, db: DB):
         reporter_id=current_user.id,
         status=IssueStatus.OPEN,
     )
+    # Compute AI priority score at creation time
+    issue.priority_score = compute_urgency_score(
+        body.title, body.description, body.category,
+        datetime.now(timezone.utc), IssueStatus.OPEN,
+    )
     db.add(issue)
     db.commit()
     db.refresh(issue)
@@ -1060,6 +1451,13 @@ async def resolve_issue(
     issue.resolver_id = current_user.id
     issue.resolved_at = datetime.now(timezone.utc)
     current_user.total_resolved = (current_user.total_resolved or 0) + 1
+
+    # Award XP to volunteer resolver
+    if current_user.role == UserRole.VOLUNTEER:
+        current_user.xp_points = (current_user.xp_points or 0) + 30
+        current_user.total_hours_contributed = (current_user.total_hours_contributed or 0) + AVG_HOURS_PER_RESOLVED_TASK
+        current_user.last_activity_at = datetime.now(timezone.utc)
+
     db.commit()
     db.refresh(issue)
     return issue_to_response(issue)
@@ -1361,7 +1759,7 @@ def get_matched_issues(
 
 
 # ═══════════════════════════════════════════════════════════════
-# ROUTER: /api/ngo
+# ROUTER: /api/ngo  (existing endpoints)
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -1629,42 +2027,6 @@ def get_ngo_dashboard_stats(current_user: CurrentUser, db: DB):
         "open": open_count,
         "resolution_rate": round(resolved / total * 100, 1) if total else 0,
     }
-
-
-@app.get("/api/geocode/reverse", tags=["Geocode"])
-async def reverse_geocode(lat: float, lng: float):
-    """Convert lat/lng to a human-readable address using OpenStreetMap Nominatim."""
-    import urllib.request
-    import json as _json
-
-    url = (
-        f"https://nominatim.openstreetmap.org/reverse"
-        f"?format=json&lat={lat}&lon={lng}&zoom=16&addressdetails=1"
-    )
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "WeaveCivicConnect/1.0"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = _json.loads(resp.read().decode())
-
-        addr = data.get("address", {})
-        parts = []
-        for key in ["road", "suburb", "neighbourhood", "quarter"]:
-            if addr.get(key):
-                parts.append(addr[key])
-                break
-        city = (
-            addr.get("city")
-            or addr.get("town")
-            or addr.get("village")
-            or addr.get("county")
-            or ""
-        )
-        display = data.get("display_name", "")
-        short_address = ", ".join(parts) + (f", {city}" if city else "") if parts else display[:80]
-
-        return {"address": short_address, "city": city, "display_name": display}
-    except Exception as exc:
-        return {"address": "", "city": "", "display_name": "", "error": str(exc)}
 
 
 @app.get("/api/health", tags=["System"])
