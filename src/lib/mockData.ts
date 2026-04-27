@@ -121,6 +121,12 @@ export const MOCK_NGO_MEMBERS = [
   { name: "Arjun Patil", role: "New", xp: 60, tier: "Seed", avatar: "AP" },
 ];
 
+export const MOCK_NOTIFICATIONS = [
+  { id: 1, title: "Volunteer assigned", desc: "A volunteer picked up your issue.", color: "bg-pastel-green", read: false },
+  { id: 2, title: "Issue resolved", desc: "One of your issues has been fixed.", color: "bg-pastel-blue", read: false },
+  { id: 3, title: "Update", desc: "Your streetlight issue is awaiting a volunteer.", color: "bg-pastel-pink", read: true },
+];
+
 export const MOCK_LEADERBOARD = [
   { name: "Sara Khan", xp: 2480, rating: 4.9, tier: "Luminary" },
   { name: "Ravi Kumar", xp: 1240, rating: 4.7, tier: "Catalyst" },

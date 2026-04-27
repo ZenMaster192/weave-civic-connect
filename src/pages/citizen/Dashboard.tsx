@@ -27,7 +27,7 @@ export default function CitizenDashboard() {
 
   return (
     <AppShell role="citizen">
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         <div className="lg:col-span-2 space-y-6">
           <Card className="p-8 bg-gradient-citizen border-0 shadow-card">
             <p className="text-sm uppercase tracking-widest text-primary/70 mb-2">Make today count</p>
@@ -105,29 +105,6 @@ export default function CitizenDashboard() {
           </div>
         </div>
 
-        <aside className="space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Bell className="w-4 h-4 text-primary" />
-            <h3 className="font-display text-xl">Notifications</h3>
-          </div>
-          {[
-            { t: "Volunteer assigned", d: "A volunteer picked up your issue.", c: "bg-pastel-green" },
-            { t: "Issue resolved", d: "One of your issues has been fixed.", c: "bg-pastel-blue" },
-            { t: "Update", d: "Your streetlight issue is awaiting a volunteer.", c: "bg-pastel-pink" },
-          ].map((n, i) => (
-            <Link to="/citizen/activity" key={i}>
-              <Card className="p-4 soft-card border-0 hover:bg-muted/40 cursor-pointer">
-                <div className="flex gap-3">
-                  <div className={`w-2 h-2 rounded-full mt-2 ${n.c}`} />
-                  <div>
-                    <p className="text-sm font-medium">{n.t}</p>
-                    <p className="text-xs text-muted-foreground">{n.d}</p>
-                  </div>
-                </div>
-              </Card>
-            </Link>
-          ))}
-        </aside>
       </div>
     </AppShell>
   );

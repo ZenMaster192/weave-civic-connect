@@ -12,9 +12,11 @@ const TIER_BG: Record<string, string> = {
   Catalyst: "bg-pastel-pink",
   Luminary: "bg-gradient-accent",
 };
+import { useState } from "react";
 
 export default function Members() {
-  const sorted = [...MOCK_NGO_MEMBERS].sort((a, b) => b.xp - a.xp);
+  const [members, setMembers] = useState([...MOCK_NGO_MEMBERS]);
+  const sorted = [...members].sort((a, b) => b.xp - a.xp);
   return (
     <AppShell role="ngo">
       <h1 className="font-display text-4xl mb-2">Members</h1>

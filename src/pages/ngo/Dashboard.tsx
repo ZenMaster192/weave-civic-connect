@@ -212,20 +212,6 @@ export default function NgoDashboard() {
                 ))}
             </div>
           </div>
-          <div className="flex items-center gap-2 mb-1">
-            <Bell className="w-4 h-4 text-primary" />
-            <h3 className="font-display text-xl">Notifications</h3>
-          </div>
-          {[
-            "3 independent volunteers want to join",
-            "Ravi resolved an issue in Koregaon Park",
-            "New unresolved case in your area: Sahakar Nagar",
-            "Member Priya hit Weaver tier",
-          ].map((n, i) => (
-            <Card key={i} className="p-4 soft-card border-0">
-              <p className="text-sm">{n}</p>
-            </Card>
-          ))}
         </aside>
       </div>
     </AppShell>

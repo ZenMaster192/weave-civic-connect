@@ -20,16 +20,35 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
+import { useEffect } from "react";
+import { usersApi } from "@/services/api";
+
 export default function Discover() {
   const queryClient = useQueryClient();
   const [selectedMatch, setSelectedMatch] = useState<VolunteerMatch | null>(null);
   const [resolving, setResolving] = useState(false);
   const [proofFile, setProofFile] = useState<File | null>(null);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([18.52, 73.86]);
+
+  const { data: me } = useQuery({ queryKey: ["users", "me"], queryFn: usersApi.me });
 
   const { data: matches = [], isLoading } = useQuery<VolunteerMatch[]>({
     queryKey: ["match", "nearby"],
     queryFn: () => matchApi.getNearbyIssues(25, 20),
   });
+
+  useEffect(() => {
+    if (selectedMatch) {
+      setMapCenter([selectedMatch.issue.latitude, selectedMatch.issue.longitude]);
+    } else if (me?.latitude && me?.longitude) {
+      setMapCenter([me.latitude, me.longitude]);
+    } else {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setMapCenter([pos.coords.latitude, pos.coords.longitude]),
+        () => console.log("Location access denied, using fallback.")
+      );
+    }
+  }, [selectedMatch, me]);
 
   const selected = selectedMatch ?? matches[0] ?? null;
 
@@ -43,10 +62,6 @@ export default function Discover() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
-
-  const mapCenter: [number, number] = selected
-    ? [selected.issue.latitude, selected.issue.longitude]
-    : [18.52, 73.86];
 
   return (
     <AppShell role="volunteer">

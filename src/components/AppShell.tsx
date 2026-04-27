@@ -1,11 +1,16 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { WeaveLogo } from "@/components/WeaveLogo";
 import { Button } from "@/components/ui/button";
 import { Bell, LogOut, LayoutDashboard, PlusCircle, ListChecks, Map, Users, Trophy, ShieldCheck } from "lucide-react";
 import { useAuthStore } from "@/store/AuthStore";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/services/api";
+import { MOCK_NOTIFICATIONS } from "@/lib/mockData";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type Role = UserRole;
 
@@ -27,6 +32,36 @@ const NAV: Record<Role, { to: string; label: string; icon: any }[]> = {
     { to: "/ngo/activity", label: "Activity", icon: ListChecks },
   ],
 };
+
+function BellDropdown() {
+  const [open, setOpen] = useState(false);
+  const [read, setRead] = useState(false);
+  const hasUnread = !read && MOCK_NOTIFICATIONS.some(n => !n.read);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (o) setRead(true); }}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="relative">
+          <Bell className="w-5 h-5" />
+          {hasUnread && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500" />}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {MOCK_NOTIFICATIONS.map(n => (
+          <DropdownMenuItem key={n.id} className="flex gap-3 items-start py-2 cursor-default">
+            <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${n.color}`} />
+            <div>
+              <p className="text-sm font-medium">{n.title}</p>
+              <p className="text-xs text-muted-foreground">{n.desc}</p>
+            </div>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export default function AppShell({ children, role }: { children: ReactNode; role: Role }) {
   const { token, profile, logout } = useAuthStore();
@@ -67,9 +102,7 @@ export default function AppShell({ children, role }: { children: ReactNode; role
           })}
         </nav>
         <div className="p-3 border-t border-sidebar-border">
-          <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={handleLogout}>
-            <LogOut className="w-4 h-4" /> Sign out
-          </Button>
+          <BellDropdown />
         </div>
       </aside>
 
@@ -83,13 +116,30 @@ export default function AppShell({ children, role }: { children: ReactNode; role
             </h2>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-accent" />
-            </Button>
-            <div className="w-9 h-9 rounded-full bg-gradient-accent flex items-center justify-center text-sm font-semibold">
-              {displayName[0]?.toUpperCase() ?? "?"}
-            </div>
+            <BellDropdown />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-9 h-9 rounded-full bg-gradient-accent flex items-center justify-center text-sm font-semibold hover:shadow-glow transition-smooth outline-none">
+                  {displayName[0]?.toUpperCase() ?? "?"}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 p-2">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1 p-1">
+                    <p className="text-sm font-medium leading-none">{displayName}</p>
+                    <p className="text-xs leading-none text-muted-foreground">{profile?.email || token?.email}</p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="capitalize py-2">
+                  <Users className="mr-2 h-4 w-4" /> {role} Account
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:bg-destructive focus:text-destructive-foreground cursor-pointer py-2 rounded-lg">
+                  <LogOut className="mr-2 h-4 w-4" /> Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
         <main className="flex-1 p-6 overflow-auto">{children}</main>
