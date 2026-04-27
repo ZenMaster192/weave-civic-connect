@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { WeaveLogo } from "@/components/WeaveLogo";
 import {InputOTP, InputOTPGroup, InputOTPSlot} from "@/components/ui/input-otp";
-import { SKILLS } from "@/lib/mockData";
+import { SKILLS } from "@/lib/skillInference";
 import {
   ArrowLeft, ShieldCheck, Mail, Phone,
   Upload, RefreshCw, CheckCircle2, Loader2,

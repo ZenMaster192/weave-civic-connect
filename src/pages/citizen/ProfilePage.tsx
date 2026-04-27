@@ -55,7 +55,7 @@ type EditableField = {
 const FIELDS: EditableField[] = [
   { key: "full_name", label: "Full Name", icon: User, placeholder: "Your name" },
   { key: "email", label: "Email Address", icon: Mail, type: "email", placeholder: "you@example.com" },
-  { key: "city", label: "City / Location", icon: MapPin, placeholder: "e.g. Pune" },
+  { key: "city", label: "City / Location", icon: MapPin, placeholder: "e.g. Bhubaneswar" },
 ];
 
 export default function CitizenProfile() {

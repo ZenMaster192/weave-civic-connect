@@ -2,6 +2,8 @@ import AppShell from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ngoApi } from "@/services/api";
+import { useQuery } from "@tanstack/react-query";
 import { MOCK_NGO_MEMBERS } from "@/lib/mockData";
 import { Trophy } from "lucide-react";
 
@@ -15,26 +17,27 @@ const TIER_BG: Record<string, string> = {
 import { useState } from "react";
 
 export default function Members() {
-  const [members, setMembers] = useState([...MOCK_NGO_MEMBERS]);
-  const sorted = [...members].sort((a, b) => b.xp - a.xp);
+  const { data: members = [], isLoading } = useQuery({
+    queryKey: ["ngo-members"],
+    queryFn: () => ngoApi.getMembers() 
+  });
+
+  if (isLoading) return <div className="p-10 text-center">Loading team...</div>;
+
   return (
     <AppShell role="ngo">
       <h1 className="font-display text-4xl mb-2">Members</h1>
-      <p className="text-muted-foreground mb-6">Sorted by XP. Click a card to assign work.</p>
-
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {sorted.map((m, i) => (
-          <Card key={m.name} className="p-6 soft-card border-0 relative overflow-hidden">
-            {i === 0 && <div className="absolute top-3 right-3"><Trophy className="w-4 h-4 text-accent" /></div>}
-            <div className={`w-14 h-14 rounded-2xl ${TIER_BG[m.tier]} flex items-center justify-center font-display font-bold text-lg mb-4`}>
-              {m.avatar}
+        {members.map((m, i) => (
+          <Card key={i} className="p-6 soft-card border-0">
+             <div className="w-14 h-14 rounded-2xl bg-pastel-blue flex items-center justify-center font-bold text-lg mb-4">
+              {m.volunteer_name[0]}
             </div>
-            <h3 className="font-display text-xl">{m.name}</h3>
-            <p className="text-xs text-muted-foreground mb-3">{m.role}</p>
-            <div className="flex items-center gap-2 mb-4">
-              <Badge variant="secondary" className="text-xs">{m.tier}</Badge>
-              <span className="text-xs text-muted-foreground">{m.xp} XP</span>
-            </div>
+            <h3 className="font-display text-xl">{m.volunteer_name}</h3>
+            <p className="text-xs text-muted-foreground mb-3">Field Volunteer</p>
+            <Badge variant="secondary" className="text-xs mb-4">
+              {m.total_resolved} Resolved
+            </Badge>
             <Button variant="outline" size="sm" className="w-full">Assign issue</Button>
           </Card>
         ))}

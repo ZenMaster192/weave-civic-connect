@@ -169,6 +169,15 @@ class UserORM(Base):
         "IssueORM", back_populates="resolver", foreign_keys="IssueORM.resolver_id"
     )
 
+class NotificationORM(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String(255), nullable=False)
+    desc = Column(Text, nullable=False)
+    color = Column(String(50), default="bg-pastel-blue")
+    read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class EmailOTPORM(Base):
     __tablename__ = "email_otps"
@@ -611,22 +620,15 @@ def compute_churn_risk(volunteer: UserORM) -> dict:
 # Startup seed
 # ─────────────────────────────────────────────────────────────
 
-_CITIES_PUNE = [
-    ("Koregaon Park", 18.5362, 73.8939),
-    ("Aundh", 18.5590, 73.8076),
-    ("Kothrud", 18.5074, 73.8077),
-    ("Hadapsar", 18.5018, 73.9259),
-    ("Viman Nagar", 18.5679, 73.9143),
-    ("Baner", 18.5601, 73.7875),
-    ("Wakad", 18.5984, 73.7626),
-    ("Magarpatta", 18.5118, 73.9303),
-    ("Shivajinagar", 18.5308, 73.8474),
-    ("Camp Area", 18.5132, 73.8772),
-    ("Deccan", 18.5167, 73.8489),
-    ("Katraj", 18.4563, 73.8632),
-    ("Pimpri", 18.6279, 73.7997),
-    ("Chinchwad", 18.6380, 73.8026),
-    ("Kondhwa", 18.4726, 73.8855),
+_CITIES_BHUBANESWAR = [
+    ("Patia", 20.3533, 85.8265),
+    ("Sahid Nagar", 20.2892, 85.8433),
+    ("Khandagiri", 20.2604, 85.7861),
+    ("Jayadev Vihar", 20.3050, 85.8200),
+    ("Nayapalli", 20.2960, 85.8050),
+    ("Old Town", 20.2345, 85.8300),
+    ("Unit 9", 20.2850, 85.8250),
+    ("Chandrasekharpur", 20.3250, 85.8150),
 ]
 
 _CATEGORIES = [
@@ -684,7 +686,7 @@ def seed_database():
             full_name="Anjali Mehta",
             role=UserRole.CITIZEN,
             is_email_verified=True,
-            latitude=18.5204, longitude=73.8567, city="Pune",
+            latitude=20.2721, longitude=85.8338, city="Bhubaneswar", # Unit 2 Area
             created_at=now - timedelta(days=90),
         )
         citizen2 = UserORM(
@@ -693,7 +695,7 @@ def seed_database():
             full_name="Rahul Bose",
             role=UserRole.CITIZEN,
             is_email_verified=True,
-            latitude=18.4810, longitude=73.8533, city="Pune",
+            latitude=20.2850, longitude=85.8500, city="Bhubaneswar", # Laxmi Sagar
             created_at=now - timedelta(days=60),
         )
 
@@ -707,7 +709,7 @@ def seed_database():
                 "xp_points": 840,
                 "last_activity_days_ago": 2,
                 "account_age_days": 180,
-                "lat": 18.5204, "lng": 73.8567,
+                "lat": 20.2892, "lng": 85.8433, # Sahid Nagar
             },
             {
                 "name": "Priya Shah", "email": "priya@example.com",
@@ -717,7 +719,7 @@ def seed_database():
                 "xp_points": 420,
                 "last_activity_days_ago": 8,
                 "account_age_days": 120,
-                "lat": 18.5362, "lng": 73.8939,
+                "lat": 20.3533, "lng": 85.8265, # Patia
             },
             {
                 "name": "Arjun Nair", "email": "arjun@example.com",
@@ -727,7 +729,7 @@ def seed_database():
                 "xp_points": 270,
                 "last_activity_days_ago": 25,
                 "account_age_days": 90,
-                "lat": 18.5590, "lng": 73.8076,
+                "lat": 20.2960, "lng": 85.8050, # Nayapalli
             },
             {
                 "name": "Meera Joshi", "email": "meera@example.com",
@@ -737,7 +739,7 @@ def seed_database():
                 "xp_points": 930,
                 "last_activity_days_ago": 1,
                 "account_age_days": 200,
-                "lat": 18.5018, "lng": 73.9259,
+                "lat": 20.2604, "lng": 85.7861, # Khandagiri
             },
             {
                 "name": "Suresh Patil", "email": "suresh@example.com",
@@ -747,7 +749,7 @@ def seed_database():
                 "xp_points": 180,
                 "last_activity_days_ago": 45,
                 "account_age_days": 150,
-                "lat": 18.5679, "lng": 73.9143,
+                "lat": 20.3050, "lng": 85.8200, # Jayadev Vihar
             },
             {
                 "name": "Kavya Iyer", "email": "kavya@example.com",
@@ -757,7 +759,7 @@ def seed_database():
                 "xp_points": 570,
                 "last_activity_days_ago": 5,
                 "account_age_days": 130,
-                "lat": 18.5601, "lng": 73.7875,
+                "lat": 20.3250, "lng": 85.8150, # Chandrasekharpur
             },
             {
                 "name": "Deepak Reddy", "email": "deepak@example.com",
@@ -767,7 +769,7 @@ def seed_database():
                 "xp_points": 90,
                 "last_activity_days_ago": 60,
                 "account_age_days": 75,
-                "lat": 18.5984, "lng": 73.7626,
+                "lat": 20.2450, "lng": 85.7750, # Dumduma
             },
             {
                 "name": "Ananya Singh", "email": "ananya@example.com",
@@ -777,7 +779,7 @@ def seed_database():
                 "xp_points": 660,
                 "last_activity_days_ago": 3,
                 "account_age_days": 160,
-                "lat": 18.5118, "lng": 73.9303,
+                "lat": 20.2750, "lng": 85.8650, # Jharapada
             },
         ]
 
@@ -792,40 +794,58 @@ def seed_database():
                 skills=vd["skills"],
                 bio=vd["bio"],
                 total_resolved=vd["total_resolved"],
+                impact_score=round(random.uniform(4.1, 4.9), 1),
                 xp_points=vd["xp_points"],
                 last_activity_at=now - timedelta(days=vd["last_activity_days_ago"]),
                 total_hours_contributed=round(vd["total_resolved"] * AVG_HOURS_PER_RESOLVED_TASK, 1),
                 is_active=True,
                 latitude=vd["lat"],
                 longitude=vd["lng"],
-                city="Pune",
+                city="Bhubaneswar",
                 created_at=now - timedelta(days=vd["account_age_days"]),
             )
             volunteer_objs.append(v)
 
         # ── NGO ───────────────────────────────────────────────
         ngo1 = UserORM(
-            email="sara@greenpune.org",
+            email="sara@greenbbsr.org",
             hashed_password=hash_password("password123"),
             full_name="Sara Khan",
             role=UserRole.NGO,
             is_email_verified=True,
-            org_name="Green Pune Collective",
+            org_name="Green Bhubaneswar Collective",
             ngo_status=NGOStatus.APPROVED,
-            latitude=18.5204, longitude=73.8567, city="Pune",
+            latitude=20.2950, longitude=85.8400, city="Bhubaneswar", # Near Vani Vihar
             created_at=now - timedelta(days=365),
         )
 
         db.add_all([citizen1, citizen2] + volunteer_objs + [ngo1])
         db.flush()
 
-        # ── Issues (rich spread across Pune) ──────────────────
+        all_demo_users = [citizen1, citizen2, ngo1] + volunteer_objs
+        for user in all_demo_users:
+            db.add_all([
+                NotificationORM(
+                    user_id=user.id, 
+                    title="Welcome to Weave", 
+                    desc="Start reporting or resolving issues in Bhubaneswar!", 
+                    color="bg-pastel-green"
+                ),
+                NotificationORM(
+                    user_id=user.id, 
+                    title="Bhubaneswar Hub Active", 
+                    desc="New issues found in Patia and Sahid Nagar.", 
+                    color="bg-pastel-blue"
+                )
+            ])    
+
+        # ── Issues (rich spread across Bhubaneswar) ──────────────────
         random.seed(42)
         issues = []
         statuses = [IssueStatus.OPEN, IssueStatus.IN_PROGRESS, IssueStatus.RESOLVED]
         status_weights = [0.5, 0.3, 0.2]
 
-        for i, (loc_name, lat, lng) in enumerate(_CITIES_PUNE):
+        for i, (loc_name, lat, lng) in enumerate(_CITIES_BHUBANESWAR):
             n_issues = random.randint(2, 5)
             for j in range(n_issues):
                 tpl_title, tpl_desc = random.choice(_ISSUE_TEMPLATES)
@@ -834,7 +854,6 @@ def seed_database():
                 title = tpl_title.format(loc=loc_name)
                 desc = tpl_desc.format(n=n_days, loc=loc_name)
 
-                # Jitter coordinates slightly so clusters look natural
                 jitter_lat = lat + random.uniform(-0.008, 0.008)
                 jitter_lng = lng + random.uniform(-0.008, 0.008)
 
@@ -845,7 +864,6 @@ def seed_database():
                 resolver = random.choice(volunteer_objs) if chosen_status != IssueStatus.OPEN else None
                 resolved_at = created + timedelta(days=random.randint(1, 7)) if chosen_status == IssueStatus.RESOLVED else None
 
-                # Compute priority score
                 priority = compute_urgency_score(title, desc, category, created, chosen_status)
 
                 issue = IssueORM(
@@ -855,8 +873,8 @@ def seed_database():
                     required_skills=random.choice(_SKILLS_POOL),
                     latitude=jitter_lat,
                     longitude=jitter_lng,
-                    address=f"{loc_name}, Pune",
-                    city="Pune",
+                    address=f"{loc_name}, Bhubaneswar",
+                    city="Bhubaneswar",
                     status=chosen_status,
                     reporter_id=random.choice([citizen1.id, citizen2.id]),
                     resolver_id=resolver.id if resolver else None,
@@ -2028,6 +2046,15 @@ def get_ngo_dashboard_stats(current_user: CurrentUser, db: DB):
         "resolution_rate": round(resolved / total * 100, 1) if total else 0,
     }
 
+@app.get("/api/notifications", tags=["System"])
+def get_notifications(current_user: CurrentUser, db: DB):
+    return db.query(NotificationORM).filter(NotificationORM.user_id == current_user.id).order_by(NotificationORM.created_at.desc()).limit(10).all()
+
+@app.get("/api/leaderboard", tags=["System"])
+def get_leaderboard(db: DB):
+    # Ranking volunteers by resolved count
+    users = db.query(UserORM).filter(UserORM.role == UserRole.VOLUNTEER).order_by(UserORM.total_resolved.desc()).limit(10).all()
+    return [{"name": u.full_name, "xp": (u.total_resolved or 0) * 50, "rating": 4.5 + (random.random() * 0.5), "tier": "Catalyst" if u.total_resolved > 20 else "Weaver"} for u in users]
 
 @app.get("/api/health", tags=["System"])
 def health():

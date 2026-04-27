@@ -28,7 +28,7 @@ export default function Discover() {
   const [selectedMatch, setSelectedMatch] = useState<VolunteerMatch | null>(null);
   const [resolving, setResolving] = useState(false);
   const [proofFile, setProofFile] = useState<File | null>(null);
-  const [mapCenter, setMapCenter] = useState<[number, number]>([18.52, 73.86]);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([20.2961, 85.8245]);
 
   const { data: me } = useQuery({ queryKey: ["users", "me"], queryFn: usersApi.me });
 

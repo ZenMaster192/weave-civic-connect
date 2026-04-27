@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Issue } from "@/lib/mockData";
+import { type Issue } from "@/services/api";
 import { Star, MessageSquare, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -26,12 +26,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 // We will fetch the actual review for a resolved issue, so extend Issue type locally
-type UI_Issue = Issue & {
-    apiIssueId: number;
-    afterImage?: string;
-    volunteer?: string;
-    resolvedAt?: string;
-};
+type UI_Issue = Issue;
 
 const IssueCard = ({ issue }: { issue: UI_Issue }) => {
   const queryClient = useQueryClient();
@@ -40,16 +35,16 @@ const IssueCard = ({ issue }: { issue: UI_Issue }) => {
   const [reviewText, setReviewText] = useState("");
 
   const { data: review } = useQuery({
-      queryKey: ["review", issue.apiIssueId],
-      queryFn: () => reviewApi.get(issue.apiIssueId),
+      queryKey: ["review", issue.id],
+      queryFn: () => reviewApi.get(issue.id),
       enabled: issue.status === "resolved",
   });
 
   const submitReview = useMutation({
-      mutationFn: () => reviewApi.submit(issue.apiIssueId, rating, reviewText),
+      mutationFn: () => reviewApi.submit(issue.id, rating, reviewText),
       onSuccess: () => {
           setReviewModalOpen(false);
-          queryClient.invalidateQueries({ queryKey: ["review", issue.apiIssueId] });
+          queryClient.invalidateQueries({ queryKey: ["review", issue.id] });
       }
   });
 
@@ -58,28 +53,28 @@ const IssueCard = ({ issue }: { issue: UI_Issue }) => {
   <Card className="overflow-hidden soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
     <div className="grid md:grid-cols-[180px_1fr] gap-0">
       <div className="relative h-44 md:h-full">
-        <img src={issue.beforeImage} alt={issue.title} className="w-full h-full object-cover" />
-        {issue.afterImage && (
+        <img src={issue.image_url} alt={issue.title} className="w-full h-full object-cover" />
+        {issue.proof_url && (
           <div className="absolute inset-0 grid grid-cols-2">
-            <img src={issue.beforeImage} className="w-full h-full object-cover" alt="" />
-            <img src={issue.afterImage} className="w-full h-full object-cover border-l-2 border-card" alt="" />
+            <img src={issue.image_url} className="w-full h-full object-cover" alt="" />
+            <img src={issue.proof_url} className="w-full h-full object-cover border-l-2 border-card" alt="" />
           </div>
         )}
       </div>
       <div className="p-5">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div>
-            <p className="text-xs text-muted-foreground">{issue.id} · {new Date(issue.createdAt).toLocaleDateString()}</p>
+            <p className="text-xs text-muted-foreground">{issue.uid.slice(0,8)} · {new Date(issue.created_at).toLocaleDateString()}</p>
             <h3 className="font-display text-xl">{issue.title}</h3>
           </div>
           <Badge className={`${STATUS_COLOR[issue.status]} capitalize border-0`}>{issue.status.replace("_", " ")}</Badge>
         </div>
         <p className="text-sm text-muted-foreground mb-3">{issue.description}</p>
-        <p className="text-xs text-muted-foreground mb-3">📍 {issue.location}</p>
+        <p className="text-xs text-muted-foreground mb-3">📍 {issue.address || issue.city}</p>
 
         {issue.status === "resolved" && (
           <div className="border-t border-border pt-3 mt-3 space-y-2">
-            <p className="text-sm">Resolved by <button className="text-primary font-medium hover:underline">{issue.volunteer}</button></p>
+            <p className="text-sm">Resolved by <span className="text-primary font-medium">{issue.resolver_name}</span></p>
             {review ? (
               <div className="flex items-center gap-1 text-sm">
                 {[1,2,3,4,5].map(n => (
@@ -95,8 +90,8 @@ const IssueCard = ({ issue }: { issue: UI_Issue }) => {
           </div>
         )}
 
-        {issue.status !== "resolved" && issue.volunteer && (
-          <p className="text-sm">👷 Assigned to <b>{issue.volunteer}</b></p>
+        {issue.status !== "resolved" && issue.resolver_name && (
+          <p className="text-sm">👷 Assigned to <b>{issue.resolver_name}</b></p>
         )}
   </div>
     </div>
@@ -149,26 +144,9 @@ export default function ActivityLog() {
   });
 
   // Normalise API Issue shape to the local Issue type used by IssueCard
-  const sorted = [...rawIssues]
-    .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
-    .map((i) => ({
-      apiIssueId: i.id,
-      id: i.uid.slice(0, 8),
-      title: i.title,
-      description: i.description,
-      category: i.category,
-      keywords: [],
-      location: i.address ?? i.city ?? "",
-      lat: i.latitude,
-      lng: i.longitude,
-      beforeImage: i.image_url ?? "",
-      status: i.status as any,
-      citizen: i.reporter_name || "",
-      volunteer: i.resolver_name || "",
-      afterImage: i.proof_url || "",
-      createdAt: i.created_at,
-      resolvedAt: i.resolved_at,
-    }));
+  const sorted = [...rawIssues].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 
   const ongoing = sorted.filter(i => i.status !== "resolved");
   const resolved = sorted.filter(i => i.status === "resolved");

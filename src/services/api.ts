@@ -118,6 +118,23 @@ export interface NGOMembershipRequest {
   created_at: string;
 }
 
+export interface Notification {
+  id: number;
+  user_id: number;
+  title: string;
+  desc: string;
+  color: string;
+  read: boolean;
+  created_at: string;
+}
+
+export interface LeaderboardEntry {
+  name: string;
+  xp: number;
+  rating: number;
+  tier: string;
+}
+
 // ── Token storage ──────────────────────────────────────────────────────
 
 const TOKEN_KEY = "weave_token";
@@ -394,6 +411,17 @@ export const ngoApi = {
   getMembersActivity: () => request<Issue[]>("/api/ngo/members/activity"),
 };
 
+// ── System ─────────────────────────────────────────────────────────────
+
+export const systemApi = {
+  getNotifications: () => request<Notification[]>("/api/notifications"),
+  
+  getLeaderboard: () => request<LeaderboardEntry[]>("/api/leaderboard"),
+  
+  markNotificationRead: (id: number) => 
+    request<{ success: boolean }>(`/api/notifications/${id}/read`, { method: "PATCH" }),
+};
+
 // ── Geocode ────────────────────────────────────────────────────────────
 
 export interface GeocodeResult {
@@ -410,4 +438,4 @@ export const geocodeApi = {
       {},
       false  // no auth required
     ),
-};
+};

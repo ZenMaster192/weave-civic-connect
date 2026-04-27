@@ -6,7 +6,8 @@ import { Bell, LogOut, LayoutDashboard, PlusCircle, ListChecks, Map, Users, Trop
 import { useAuthStore } from "@/store/AuthStore";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/services/api";
-import { MOCK_NOTIFICATIONS } from "@/lib/mockData";
+import { systemApi } from "@/services/api";
+import { useQuery } from "@tanstack/react-query";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -34,12 +35,17 @@ const NAV: Record<Role, { to: string; label: string; icon: any }[]> = {
 };
 
 function BellDropdown() {
+  const { data: notifications = [] } = useQuery({
+    queryKey: ["notifications"],
+    queryFn: systemApi.getNotifications,
+    refetchInterval: 10000 // Poll every 10s
+  });
+
   const [open, setOpen] = useState(false);
-  const [read, setRead] = useState(false);
-  const hasUnread = !read && MOCK_NOTIFICATIONS.some(n => !n.read);
+  const hasUnread = notifications.some(n => !n.read);
 
   return (
-    <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (o) setRead(true); }}>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="w-5 h-5" />
@@ -49,8 +55,9 @@ function BellDropdown() {
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel>Notifications</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {MOCK_NOTIFICATIONS.map(n => (
-          <DropdownMenuItem key={n.id} className="flex gap-3 items-start py-2 cursor-default">
+        {notifications.length === 0 && <p className="text-xs p-4 text-center text-muted-foreground">No new alerts</p>}
+        {notifications.map(n => (
+          <DropdownMenuItem key={n.id} className="flex gap-3 items-start py-2">
             <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${n.color}`} />
             <div>
               <p className="text-sm font-medium">{n.title}</p>

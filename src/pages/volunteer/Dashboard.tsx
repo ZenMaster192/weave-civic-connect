@@ -2,11 +2,11 @@ import AppShell from "@/components/AppShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MOCK_LEADERBOARD } from "@/lib/mockData";
 import { Trophy, Zap, Star, MapPin, ArrowRight, Clock, Map, Check } from "lucide-react";
+// Import systemApi for leaderboard
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { dispatchApi, usersApi, matchApi } from "@/services/api";
+import { dispatchApi, usersApi, matchApi, systemApi } from "@/services/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
@@ -17,6 +17,29 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+
+function LeaderboardList() {
+  const { data: leaderboard = [], isLoading } = useQuery({
+    queryKey: ["leaderboard-short"],
+    queryFn: systemApi.getLeaderboard
+  });
+
+  if (isLoading) return <Skeleton className="h-40 w-full" />;
+
+  return (
+    <>
+      {leaderboard.slice(0, 5).map((u, i) => (
+        <div key={i} className="flex items-center gap-3 py-2 border-b border-border/60 last:border-0">
+          <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-xs font-bold">{i + 1}</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{u.name}</p>
+            <p className="text-xs text-muted-foreground">{u.tier} · {u.xp} XP · ⭐ {u.rating.toFixed(1)}</p>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
 
 export default function VolunteerDashboard() {
   const queryClient = useQueryClient();
@@ -149,19 +172,10 @@ export default function VolunteerDashboard() {
             </div>
           </div>
         </div>
-
         <aside className="space-y-3">
           <h3 className="font-display text-xl mb-1">Your standing</h3>
           <Card className="p-5 soft-card border-0">
-            {MOCK_LEADERBOARD.slice(0, 5).map((u, i) => (
-              <div key={u.name} className="flex items-center gap-3 py-2 border-b border-border/60 last:border-0">
-                <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center text-xs font-bold">{i + 1}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{u.name}</p>
-                  <p className="text-xs text-muted-foreground">{u.tier} · {u.xp} XP · ⭐ {u.rating}</p>
-                </div>
-              </div>
-            ))}
+            <LeaderboardList />
           </Card>
         </aside>
       </div>
