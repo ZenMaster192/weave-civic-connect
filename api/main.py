@@ -48,6 +48,8 @@ from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
 # Config
 # ─────────────────────────────────────────────────────────────
 
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./weave.db")
+
 SECRET_KEY = os.getenv("WEAVE_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION_supersecret_key_32chars!!")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
