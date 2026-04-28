@@ -21,27 +21,27 @@ Weave is divided into three primary interaction nodes that communicate through a
 ┌─────────────────────────────────────────────────────────────┐
 │                        WEAVE CORE                           │
 │                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │   CITIZEN    │  │  VOLUNTEER   │  │       NGO        │  │
-│  │ Intake Layer │  │  Execution   │  │ Admin & Oversight│  │
-│  │              │  │    Layer     │  │      Layer       │  │
-│  │ • Report     │  │ • Browse     │  │ • Assign issues  │  │
-│  │   issues     │  │   matched    │  │ • Manage members │  │
-│  │ • Upvote     │  │   issues     │  │ • Track stats    │  │
-│  │ • Review     │  │ • Accept     │  │ • Force dispatch │  │
-│  │   resolved   │  │   dispatches │  │ • View dashboard │  │
-│  │   work       │  │ • Earn XP    │  │                  │  │
-│  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │
+│  │   CITIZEN    │  │  VOLUNTEER   │  │       NGO        │   │
+│  │ Intake Layer │  │  Execution   │  │ Admin & Oversight│   │
+│  │              │  │    Layer     │  │      Layer       │   │
+│  │ • Report     │  │ • Browse     │  │ • Assign issues  │   │
+│  │   issues     │  │   matched    │  │ • Manage members │   │
+│  │ • Upvote     │  │   issues     │  │ • Track stats    │   │
+│  │ • Review     │  │ • Accept     │  │ • Force dispatch │   │
+│  │   resolved   │  │   dispatches │  │ • View dashboard │   │
+│  │   work       │  │ • Earn XP    │  │                  │   │
+│  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘   │
 │         │                 │                    │            │
 │         └─────────────────┼────────────────────┘            │
 │                           ▼                                 │
 │         ┌─────────────────────────────────┐                 │
-│         │     Algorithmic Processing Core  │                 │
-│         │  • AI Urgency Triage Engine      │                 │
-│         │  • Geo Matching (Haversine)      │                 │
-│         │  • Volunteer Churn Risk Model    │                 │
-│         │  • XP & Impact Scoring           │                 │
-│         │  • Dispatch Race Condition Model │                 │
+│         │     Algorithmic Processing Core  │                │
+│         │  • AI Urgency Triage Engine      │                │
+│         │  • Geo Matching (Haversine)      │                │
+│         │  • Volunteer Churn Risk Model    │                │
+│         │  • XP & Impact Scoring           │                │
+│         │  • Dispatch Race Condition Model │                │
 │         └─────────────────────────────────┘                 │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -276,8 +276,6 @@ On first startup, the database is automatically seeded with realistic Bhubaneswa
 
 ## Next Steps
 
-- [ ] Expose `/api/ngo/crm` endpoint surfacing churn risk data per volunteer
-- [ ] Add PostgreSQL support and migration tooling (Alembic)
 - [ ] User authentication refresh tokens
 - [ ] Push notifications for dispatch events
 - [ ] Admin panel for platform-wide moderation
