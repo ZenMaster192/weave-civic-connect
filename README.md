@@ -106,7 +106,7 @@ Interactive docs at `http://localhost:8000/docs`
 | Variable | Default | Description |
 |---|---|---|
 | `WEAVE_SECRET_KEY` | `CHANGE_ME...` | JWT signing key — **change in production** |
-| `DATABASE_URL` | `sqlite:///./weave.db` | Database connection string |
+| `DATABASE_URL` | `postgresql://...` | Database connection string (Use Supabase port `6543`) |
 | `EMAIL_ENABLED` | `false` | Set `true` to enable SMTP email |
 | `SMTP_HOST` | `smtp.gmail.com` | SMTP server host |
 | `SMTP_PORT` | `587` | SMTP port |
@@ -200,12 +200,17 @@ Interactive docs at `http://localhost:8000/docs`
 
 ```
 weave/
-├── main.py                  # FastAPI app, all routes, ORM models, AI engines
-├── weave.db                 # SQLite database (auto-created on first run)
-├── uploads/                 # Uploaded images and proof files
-├── static/                  # Static assets (NGO dashboard)
-├── templates/               # Jinja2 HTML templates
-└── requirements.txt         # Python dependencies
+├── src/                     # React frontend source code (components, pages, hooks)
+├── public/                  # Public static assets for the frontend
+├── uploads/                 # Local storage for user-uploaded images and proof files
+├── main.py                  # FastAPI backend app, ORM models, and AI triage engines
+├── index.html               # Vite HTML entry point for the React application
+├── components.json          # shadcn/ui component configuration
+├── package.json             # Frontend dependencies and scripts
+├── bun.lockb / package-lock # Frontend package lock files
+├── requirements.txt         # Python backend dependencies (FastAPI, SQLAlchemy, psycopg2)
+├── .env                     # Environment variables (Supabase URL, Secrets) - *Ignored in git*
+└── README.md                # Project documentation
 ```
 
 ## Database Schema
@@ -263,11 +268,10 @@ On first startup, the database is automatically seeded with realistic Bhubaneswa
 
 ## Known Issues & Notes
 
-- SQLite is used by default; swap `DATABASE_URL` to PostgreSQL for production
-- `WEAVE_SECRET_KEY` must be changed before any public deployment
-- File uploads are stored locally in `/uploads`; use S3 or similar in production
-- The churn risk and urgency APIs are available internally but not yet exposed as standalone endpoints — easy to add
-
+- **Database:** Supabase (PostgreSQL) is configured as the primary database. Ensure your `DATABASE_URL` connects via the Transaction Pooler (port `6543`) for optimal FastAPI concurrency.
+- **Security:** `WEAVE_SECRET_KEY` must be changed in your `.env` file before any public deployment.
+- **Storage:** File uploads are currently stored locally in the `/uploads` directory. For production, consider migrating this to Supabase Storage or an AWS S3 bucket.
+- **AI Modules:** The volunteer churn risk and issue urgency algorithms are functioning internally but are not yet exposed as standalone API endpoints.
 ---
 
 ## Next Steps
