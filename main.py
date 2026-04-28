@@ -60,9 +60,7 @@ SECRET_KEY = os.getenv("WEAVE_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION_supersecret_
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
-DATABASE_URL = os.getenv(
-    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./weave.db")
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./weave.db")
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
