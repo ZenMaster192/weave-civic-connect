@@ -149,7 +149,7 @@ const handleId = async (e: React.FormEvent) => {
     toast.success("Identity stored. Welcome to Weave!");
     nav(r === "volunteer" ? "/volunteer" : "/citizen");
   };
-  
+
   useEffect(() => {
     if (otp.length === 6 && step === "otp" && !verifyOtpMutation.isPending && !otpVerified) {
       verifyOtpMutation.mutate();
@@ -366,7 +366,7 @@ const handleId = async (e: React.FormEvent) => {
                 </div>
 
                 <div className="rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 text-[11px] text-center">
-                  <strong>Dev mode:</strong> look for <code className="font-mono">&gt;&gt;&gt; OTP CODE: XXXXXX &lt;&lt;&lt;</code> in your uvicorn terminal.
+                  <strong>Dev mode:</strong> look for <code className="font-mono">&gt;&gt;&gt; OTP CODE: XXXXXX &lt;&lt;&lt;</code> in your uvicorn terminal. DEMO OTP - 000000
                 </div>
               </form>
             )}
