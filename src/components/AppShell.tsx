@@ -138,8 +138,10 @@ export default function AppShell({ children, role }: { children: ReactNode; role
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="capitalize py-2">
-                  <Users className="mr-2 h-4 w-4" /> {role} Account
+                <DropdownMenuItem asChild className="capitalize py-2 cursor-pointer">
+                  <Link to={`/${role}/profile`}>
+                    <Users className="mr-2 h-4 w-4" /> {role} Account
+                  </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:bg-destructive focus:text-destructive-foreground cursor-pointer py-2 rounded-lg">
