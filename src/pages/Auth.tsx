@@ -10,7 +10,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { WeaveLogo } from "@/components/WeaveLogo";
-import { SKILLS } from "@/lib/mockData";
+import {InputOTP, InputOTPGroup, InputOTPSlot} from "@/components/ui/input-otp";
+import { SKILLS } from "@/lib/skillInference";
 import {
   ArrowLeft, ShieldCheck, Mail, Phone,
   Upload, RefreshCw, CheckCircle2, Loader2,
@@ -28,51 +29,6 @@ const ROLE_META: Record<Role, { title: string; devanagari: string; bg: string; t
   ngo:       { title: "NGO",       devanagari: "संस्था",    bg: "bg-gradient-ngo",       tagline: "Coordinate. Supervise. Scale." },
 };
 
-function OtpInput({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
-  const refs = Array.from({ length: 6 }, () => useRef<HTMLInputElement>(null));
-  const digits = value.padEnd(6, "").split("").slice(0, 6);
-  const focus = (i: number) => refs[i]?.current?.focus();
-
-  const handleChange = (i: number, raw: string) => {
-    const ch = raw.replace(/\D/g, "").slice(-1);
-    const next = digits.map((d, idx) => (idx === i ? ch : d)).join("").trimEnd();
-    onChange(next);
-    if (ch && i < 5) focus(i + 1);
-  };
-
-  const handleKey = (i: number, e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !digits[i] && i > 0) {
-      onChange(digits.slice(0, i - 1).join(""));
-      focus(i - 1);
-    }
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
-    if (pasted) { onChange(pasted); focus(Math.min(pasted.length, 5)); e.preventDefault(); }
-  };
-
-  return (
-    <div className="flex gap-2 justify-center" onPaste={handlePaste}>
-      {digits.map((d, i) => (
-        <input
-          key={i}
-          ref={refs[i]}
-          type="text"
-          inputMode="numeric"
-          maxLength={1}
-          value={d}
-          disabled={disabled}
-          onChange={(e) => handleChange(i, e.target.value)}
-          onKeyDown={(e) => handleKey(i, e)}
-          onFocus={(e) => e.target.select()}
-          style={{ width: "44px", height: "52px" }}
-          className={`text-center text-xl font-bold rounded-xl border-2 bg-background transition-all outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-50 disabled:cursor-not-allowed ${d ? "border-primary/60 text-foreground" : "border-border text-muted-foreground"}`}
-        />
-      ))}
-    </div>
-  );
-}
 
 function useResendCooldown(seconds = 60) {
   const [remaining, setRemaining] = useState(seconds);
@@ -224,62 +180,94 @@ export default function Auth() {
 
                   <TabsContent value="signup">
                     <form onSubmit={handleSignup} className="space-y-4">
-                      <div>
-                        <Label htmlFor="name">Full name</Label>
-                        <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Anjali Mehta" />
-                      </div>
-                      {r === "ngo" && (
-                        <div>
-                          <Label htmlFor="org">Organization name</Label>
-                          <Input id="org" value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="e.g. Green Pune Collective" />
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><Label>City</Label><Input placeholder="Pune" value={city} onChange={(e) => setCity(e.target.value)} /></div>
-                        <div><Label>Age</Label><Input type="number" placeholder="28" /></div>
-                      </div>
-                      <div>
-                        <Label htmlFor="email">Email</Label>
-                        <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-                      </div>
-                      <div><Label htmlFor="phone">Phone</Label><Input id="phone" type="tel" placeholder="+91 ..." /></div>
-                      <div>
-                        <Label htmlFor="pw">Password</Label>
-                        <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
-                      </div>
-
-                      {r === "volunteer" && (
-                        <div>
-                          <Label className="mb-2 block">Pick your skills</Label>
-                          <div className="flex flex-wrap gap-2 max-h-40 overflow-auto p-2 rounded-lg bg-muted/40">
-                            {SKILLS.map((s) => (
-                              <button type="button" key={s} onClick={() => toggleSkill(s)}
-                                className={`px-3 py-1 text-xs rounded-full border transition-smooth ${skills.includes(s) ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-secondary border-border"}`}>
-                                {s}
-                              </button>
-                            ))}
-                          </div>
-                          <Input className="mt-3" placeholder="Profession (optional)" />
-                        </div>
-                      )}
-
-                      {r === "ngo" && (
+                      {r === "ngo" ? (
                         <>
-                          <div><Label>Establishment year</Label><Input placeholder="2018" /></div>
-                          <div><Label>Member count</Label><Input type="number" placeholder="42" /></div>
+                          <div>
+                            <Label htmlFor="org">Organization name</Label>
+                            <Input id="org" value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="e.g. Green Bhubaneswar Collective" />
+                          </div>
+                          <div>
+                            <Label htmlFor="email">Organisation Email</Label>
+                            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+                          </div>                          
+                          <div>
+                            <Label>City</Label>
+                            <Input placeholder="Bhubaneswar" value={city} onChange={(e) => setCity(e.target.value)} />
+                          </div>
+                          <div>
+                            <Label>Establishment year</Label>
+                            <Input placeholder="2018" />
+                          </div>
+                          <div>
+                            <Label>Member count</Label>
+                            <Input type="number" placeholder="42" />
+                          </div>
                           <div>
                             <Label>Registration certificate</Label>
                             <div className="mt-2 border-2 border-dashed border-border rounded-xl p-5 text-center text-sm text-muted-foreground hover:bg-muted/40 transition-smooth cursor-pointer">
                               <Upload className="w-5 h-5 mx-auto mb-1" />Click to upload PDF / image
                             </div>
                           </div>
+                          <div>
+                            <Label htmlFor="name">Name of representative</Label>
+                            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dishashree Swain" />
+                          </div>
+                          <div>
+                            <Label>Age of representative</Label>
+                            <Input type="number" placeholder="28" />
+                          </div>
+                          <div>
+                            <Label htmlFor="phone">Phone</Label>
+                            <Input id="phone" type="tel" placeholder="+91 ..." />
+                          </div>
+                          <div>
+                            <Label htmlFor="pw">Password</Label>
+                            <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+                          </div>
                           <div className="rounded-xl bg-secondary/60 p-3 text-xs text-secondary-foreground flex gap-2">
                             <ShieldCheck className="w-4 h-4 mt-0.5 flex-shrink-0" />
                             NGO accounts require manual approval before going live.
                           </div>
                         </>
-                      )}
+                      ) : (
+                        <>
+                          <div>
+                            <Label htmlFor="name">Full name</Label>
+                            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dishashree Swain" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div><Label>City</Label><Input placeholder="Bhubaneswar" value={city} onChange={(e) => setCity(e.target.value)} /></div>
+                            <div><Label>Age</Label><Input type="number" placeholder="28" /></div>
+                          </div>
+                          <div>
+                            <Label htmlFor="email">Email</Label>
+                            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+                          </div>
+                          <div>
+                            <Label htmlFor="phone">Phone</Label>
+                            <Input id="phone" type="tel" placeholder="+91 ..." />
+                          </div>
+                          <div>
+                            <Label htmlFor="pw">Password</Label>
+                            <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+                          </div>
 
+                          {r === "volunteer" && (
+                            <div>
+                              <Label className="mb-2 block">Pick your skills</Label>
+                              <div className="flex flex-wrap gap-2 max-h-40 overflow-auto p-2 rounded-lg bg-muted/40">
+                                {SKILLS.map((s) => (
+                                  <button type="button" key={s} onClick={() => toggleSkill(s)}
+                                    className={`px-3 py-1 text-xs rounded-full border transition-smooth ${skills.includes(s) ? "bg-primary text-primary-foreground border-primary" : "bg-card hover:bg-secondary border-border"}`}>
+                                    {s}
+                                  </button>
+                                ))}
+                              </div>
+                              <Input className="mt-3" placeholder="Profession (optional)" />
+                            </div>
+                          )}
+                        </>
+                      )}
                       <Button type="submit" className="w-full" size="lg" disabled={registerMutation.isPending}>
                         {registerMutation.isPending
                           ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating account…</>
@@ -296,7 +284,7 @@ export default function Auth() {
                         {loginMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Signing in…</> : `Sign in as ${meta.title}`}
                       </Button>
                       <p className="text-xs text-center text-muted-foreground">
-                        Seeded demo: anjali@example.com / ravi@example.com / sara@greenpune.org — password: password123
+                        Seeded demo: anjali@example.com / ravi@example.com / sara@greenbbsr.org — password: password123
                       </p>
                     </form>
                   </TabsContent>
@@ -315,7 +303,23 @@ export default function Auth() {
                   </p>
                 </div>
 
-                <OtpInput value={otp} onChange={setOtp} disabled={verifyOtpMutation.isPending || otpVerified} />
+                <div className="flex justify-center py-4">
+                <InputOTP
+                  maxLength={6}
+                  value={otp}
+                  onChange={setOtp}
+                  disabled={verifyOtpMutation.isPending || otpVerified}
+                >
+                  <InputOTPGroup className="gap-2">
+                    <InputOTPSlot index={0} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={1} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={2} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={3} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={4} className="w-12 h-12 text-xl rounded-md border-2" />
+                    <InputOTPSlot index={5} className="w-12 h-12 text-xl rounded-md border-2" />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
 
                 {verifyOtpMutation.isPending && (
                   <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">

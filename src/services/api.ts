@@ -74,6 +74,7 @@ export interface NGOMemberStats {
   volunteer_name: string;
   total_resolved: number;
   skills?: string;
+  impact_score: number;
 }
 
 export interface NGOStats {
@@ -82,6 +83,56 @@ export interface NGOStats {
   in_progress: number;
   open: number;
   resolution_rate: number;
+}
+
+export interface DispatchRequest {
+  id: number;
+  issue_id: number;
+  volunteer_id: number;
+  status: "PENDING" | "ACCEPTED" | "EXPIRED" | "CANCELLED";
+  score: number;
+  created_at: string;
+  expires_at: string;
+  issue: Issue;
+}
+
+export interface Review {
+  id: number;
+  issue_id: number;
+  reviewer_id: number;
+  volunteer_id: number;
+  rating: number;
+  review_text: string;
+  after_image_url?: string;
+  created_at: string;
+}
+
+export interface NGOMembershipRequest {
+  id: number;
+  volunteer_id: number;
+  volunteer_name: string;
+  ngo_id: number;
+  ngo_name: string;
+  initiated_by: "VOLUNTEER" | "NGO";
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  created_at: string;
+}
+
+export interface Notification {
+  id: number;
+  user_id: number;
+  title: string;
+  desc: string;
+  color: string;
+  read: boolean;
+  created_at: string;
+}
+
+export interface LeaderboardEntry {
+  name: string;
+  xp: number;
+  rating: number;
+  tier: string;
 }
 
 // ── Token storage ──────────────────────────────────────────────────────
@@ -294,6 +345,32 @@ export const matchApi = {
     ),
 };
 
+export const dispatchApi = {
+  dispatchIssue: (issueId: number, limit = 5) =>
+    request<{ message: string }>(`/api/issues/${issueId}/dispatch?limit=${limit}`, { method: "POST" }),
+    
+  getPending: () => request<DispatchRequest[]>("/api/volunteer/dispatch/pending"),
+  
+  accept: (dispatchId: number) =>
+    request<Issue>(`/api/volunteer/dispatch/${dispatchId}/accept`, { method: "POST" }),
+    
+  getActiveIssue: () => request<Issue | null>("/api/volunteer/active-issue"),
+};
+
+// ── Reviews ────────────────────────────────────────────────────────────
+
+export const reviewApi = {
+  submit: (issueId: number, rating: number, reviewText: string, afterImage?: File) => {
+    const form = new FormData();
+    form.append("rating", String(rating));
+    form.append("review_text", reviewText);
+    if (afterImage) form.append("after_image", afterImage);
+    return request<Review>(`/api/issues/${issueId}/review`, { method: "POST", body: form });
+  },
+  
+  get: (issueId: number) => request<Review | null>(`/api/issues/${issueId}/review`),
+};
+
 // ── NGO ────────────────────────────────────────────────────────────────
 
 export const ngoApi = {
@@ -310,7 +387,39 @@ export const ngoApi = {
   assignIssue: (issueId: number) =>
     request<Issue>(`/api/ngo/assign/${issueId}`, { method: "PATCH" }),
 
+  forceAssignMember: (issueId: number, volunteerId: number) =>
+    request<{ message: string }>(`/api/ngo/issues/${issueId}/assign-member?volunteer_id=${volunteerId}`, { method: "POST" }),
+
   getStats: () => request<NGOStats>("/api/ngo/stats"),
+  
+  discoverVolunteers: (city?: string) => {
+    const qs = city ? `?city=${encodeURIComponent(city)}` : "";
+    return request<NGOMemberStats[]>(`/api/ngo/discover-volunteers${qs}`);
+  },
+  
+  inviteVolunteer: (volunteerId: number) =>
+    request<{ message: string }>(`/api/ngo/membership/invite?volunteer_id=${volunteerId}`, { method: "POST" }),
+    
+  applyMembership: (ngoId: number) =>
+    request<{ message: string }>(`/api/ngo/membership/apply?ngo_id=${ngoId}`, { method: "POST" }),
+    
+  getRequests: () => request<NGOMembershipRequest[]>("/api/ngo/membership/requests"),
+  
+  approveRequest: (reqId: number) =>
+    request<{ message: string }>(`/api/ngo/membership/${reqId}/approve`, { method: "POST" }),
+    
+  getMembersActivity: () => request<Issue[]>("/api/ngo/members/activity"),
+};
+
+// ── System ─────────────────────────────────────────────────────────────
+
+export const systemApi = {
+  getNotifications: () => request<Notification[]>("/api/notifications"),
+  
+  getLeaderboard: () => request<LeaderboardEntry[]>("/api/leaderboard"),
+  
+  markNotificationRead: (id: number) => 
+    request<{ success: boolean }>(`/api/notifications/${id}/read`, { method: "PATCH" }),
 };
 
 // ── Geocode ────────────────────────────────────────────────────────────
@@ -329,4 +438,4 @@ export const geocodeApi = {
       {},
       false  // no auth required
     ),
-};
+};

@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { issuesApi, type Issue } from "@/services/api";
 import { useAuthStore } from "@/store/AuthStore";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 export default function CitizenDashboard() {
   const { token } = useAuthStore();
@@ -26,7 +27,7 @@ export default function CitizenDashboard() {
 
   return (
     <AppShell role="citizen">
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         <div className="lg:col-span-2 space-y-6">
           <Card className="p-8 bg-gradient-citizen border-0 shadow-card">
             <p className="text-sm uppercase tracking-widest text-primary/70 mb-2">Make today count</p>
@@ -61,7 +62,9 @@ export default function CitizenDashboard() {
               {isLoading
                 ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
                 : issues.slice(0, 3).map(i => (
-                  <Card key={i.id} className="p-4 flex gap-4 items-center soft-card border-0">
+                  <Dialog key={i.id}>
+                  <DialogTrigger asChild>
+                  <Card className="p-4 flex gap-4 items-center soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
                     {i.image_url
                       ? <img src={i.image_url} alt={i.title} className="w-16 h-16 rounded-xl object-cover" />
                       : <div className="w-16 h-16 rounded-xl bg-muted flex items-center justify-center text-xs text-muted-foreground">{i.category}</div>
@@ -74,35 +77,34 @@ export default function CitizenDashboard() {
                       {i.status.replace("_", " ")}
                     </Badge>
                   </Card>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                      <DialogTitle className="font-display text-2xl">{i.title}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 text-sm">
+                      {i.image_url && (
+                        <img src={i.image_url} alt={i.title} className="w-full h-48 object-cover rounded-xl" />
+                      )}
+                      <Badge variant="secondary" className="capitalize">{i.category}</Badge>
+                      <p className="text-xs text-muted-foreground"> 
+                        Description: <span className="text-sm text-muted-foreground">{i.description}</span></p>
+                      <p className="text-xs text-muted-foreground"> Location: {i.address ?? i.city}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Status: <span className="font-medium capitalize">{i.status.replace("_", " ")}</span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Raised on {new Date(i.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </DialogContent>
+                  </Dialog>
                 ))
               }
             </div>
           </div>
         </div>
 
-        <aside className="space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Bell className="w-4 h-4 text-primary" />
-            <h3 className="font-display text-xl">Notifications</h3>
-          </div>
-          {[
-            { t: "Volunteer assigned", d: "A volunteer picked up your issue.", c: "bg-pastel-green" },
-            { t: "Issue resolved", d: "One of your issues has been fixed.", c: "bg-pastel-blue" },
-            { t: "Update", d: "Your streetlight issue is awaiting a volunteer.", c: "bg-pastel-pink" },
-          ].map((n, i) => (
-            <Link to="/citizen/activity" key={i}>
-              <Card className="p-4 soft-card border-0 hover:bg-muted/40 cursor-pointer">
-                <div className="flex gap-3">
-                  <div className={`w-2 h-2 rounded-full mt-2 ${n.c}`} />
-                  <div>
-                    <p className="text-sm font-medium">{n.t}</p>
-                    <p className="text-xs text-muted-foreground">{n.d}</p>
-                  </div>
-                </div>
-              </Card>
-            </Link>
-          ))}
-        </aside>
       </div>
     </AppShell>
   );

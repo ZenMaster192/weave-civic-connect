@@ -3,66 +3,188 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MOCK_ISSUES, Issue } from "@/lib/mockData";
-import { Star, MessageSquare } from "lucide-react";
+import { type Issue } from "@/services/api";
+import { Star, MessageSquare, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { issuesApi, reviewApi } from "@/services/api";
+import { useAuthStore } from "@/store/AuthStore";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const STATUS_COLOR: Record<string, string> = {
-  unresolved: "bg-pastel-pink text-foreground",
+  open: "bg-pastel-pink text-foreground",
   assigned: "bg-pastel-blue text-foreground",
   in_progress: "bg-accent-soft text-foreground",
   resolved: "bg-pastel-green text-foreground",
 };
 
-const IssueCard = ({ issue }: { issue: Issue }) => (
-  <Card className="overflow-hidden soft-card border-0">
+// We will fetch the actual review for a resolved issue, so extend Issue type locally
+type UI_Issue = Issue;
+
+const IssueCard = ({ issue }: { issue: UI_Issue }) => {
+  const queryClient = useQueryClient();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [reviewText, setReviewText] = useState("");
+
+  const { data: review } = useQuery({
+      queryKey: ["review", issue.id],
+      queryFn: () => reviewApi.get(issue.id),
+      enabled: issue.status === "resolved",
+  });
+
+  const submitReview = useMutation({
+      mutationFn: () => reviewApi.submit(issue.id, rating, reviewText),
+      onSuccess: () => {
+          setReviewModalOpen(false);
+          queryClient.invalidateQueries({ queryKey: ["review", issue.id] });
+      }
+  });
+
+  return (
+    <>
+    <Card onClick={() => setDetailOpen(true)} className="overflow-hidden soft-card border-0 cursor-pointer hover:shadow-lg transition-shadow">
     <div className="grid md:grid-cols-[180px_1fr] gap-0">
       <div className="relative h-44 md:h-full">
-        <img src={issue.beforeImage} alt={issue.title} className="w-full h-full object-cover" />
-        {issue.afterImage && (
+        <img src={issue.image_url} alt={issue.title} className="w-full h-full object-cover" />
+        {issue.proof_url && (
           <div className="absolute inset-0 grid grid-cols-2">
-            <img src={issue.beforeImage} className="w-full h-full object-cover" alt="" />
-            <img src={issue.afterImage} className="w-full h-full object-cover border-l-2 border-card" alt="" />
+            <img src={issue.image_url} className="w-full h-full object-cover" alt="" />
+            <img src={issue.proof_url} className="w-full h-full object-cover border-l-2 border-card" alt="" />
           </div>
         )}
       </div>
       <div className="p-5">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div>
-            <p className="text-xs text-muted-foreground">{issue.id} · {new Date(issue.createdAt).toLocaleDateString()}</p>
+            <p className="text-xs text-muted-foreground">{issue.uid.slice(0,8)} · {new Date(issue.created_at).toLocaleDateString()}</p>
             <h3 className="font-display text-xl">{issue.title}</h3>
           </div>
           <Badge className={`${STATUS_COLOR[issue.status]} capitalize border-0`}>{issue.status.replace("_", " ")}</Badge>
         </div>
         <p className="text-sm text-muted-foreground mb-3">{issue.description}</p>
-        <p className="text-xs text-muted-foreground mb-3">📍 {issue.location}</p>
+        <p className="text-xs text-muted-foreground mb-3">📍 {issue.address || issue.city}</p>
 
         {issue.status === "resolved" && (
           <div className="border-t border-border pt-3 mt-3 space-y-2">
-            <p className="text-sm">Resolved by <button className="text-primary font-medium hover:underline">{issue.volunteer}</button></p>
-            {issue.rating && (
+            <p className="text-sm">Resolved by <span className="text-primary font-medium">{issue.resolver_name}</span></p>
+            {review ? (
               <div className="flex items-center gap-1 text-sm">
                 {[1,2,3,4,5].map(n => (
-                  <Star key={n} className={`w-4 h-4 ${n <= (issue.rating || 0) ? "fill-accent text-accent" : "text-muted-foreground"}`} />
+                  <Star key={n} className={`w-4 h-4 ${n <= review.rating ? "fill-accent text-accent" : "text-muted-foreground"}`} />
                 ))}
-                <span className="ml-2 text-muted-foreground italic">"{issue.review}"</span>
-                <Button variant="ghost" size="sm" className="ml-auto gap-1"><MessageSquare className="w-3 h-3" /> Edit review</Button>
+                <span className="ml-2 text-muted-foreground italic">"{review.review_text}"</span>
               </div>
+            ) : (
+              <Button size="sm" onClick={() => setReviewModalOpen(true)} className="gap-2">
+                  <Star className="w-4 h-4" /> Review Volunteer
+              </Button>
             )}
           </div>
         )}
 
-        {issue.status !== "resolved" && issue.volunteer && (
-          <p className="text-sm">👷 Assigned to <b>{issue.volunteer}</b></p>
+        {issue.status !== "resolved" && issue.resolver_name && (
+          <p className="text-sm">👷 Assigned to <b>{issue.resolver_name}</b></p>
         )}
-      </div>
+  </div>
     </div>
-  </Card>
-);
+ </Card>
+    <Dialog open={detailOpen} onOpenChange={setDetailOpen}>      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="font-display text-2xl">{issue.title}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className={`grid ${issue.proof_url ? "grid-cols-2" : "grid-cols-1"} gap-2 rounded-xl overflow-hidden max-h-60`}>
+            <img src={issue.image_url} alt={issue.title} className="w-full h-full object-cover" />
+            {issue.proof_url && <img src={issue.proof_url} alt="Proof" className="w-full h-full object-cover" />}
+          </div>
+          <div className="flex items-center justify-between">
+            <Badge className={`${STATUS_COLOR[issue.status]} capitalize border-0`}>{issue.status.replace("_", " ")}</Badge>
+            <p className="text-xs text-muted-foreground">{new Date(issue.created_at).toLocaleDateString()}</p>
+          </div>
+          <p className="text-sm text-muted-foreground">{issue.description}</p>
+          <p className="text-sm">📍 {issue.address || issue.city}</p>
+          {issue.status === "resolved" && (
+            <div className="border-t border-border pt-3 space-y-2">
+              <p className="text-sm">Resolved by <span className="text-primary font-medium">{issue.resolver_name}</span></p>
+              {review ? (
+                <div className="flex items-center gap-1 text-sm">
+                  {[1,2,3,4,5].map(n => (
+                    <Star key={n} className={`w-4 h-4 ${n <= review.rating ? "fill-accent text-accent" : "text-muted-foreground"}`} />
+                  ))}
+                  <span className="ml-2 text-muted-foreground italic">"{review.review_text}"</span>
+                </div>
+              ) : (
+                <Button size="sm" onClick={() => { setDetailOpen(false); setReviewModalOpen(true); }} className="gap-2">
+                  <Star className="w-4 h-4" /> Review Volunteer
+                </Button>
+              )}
+            </div>
+          )}
+          {issue.status !== "resolved" && issue.resolver_name && (
+            <p className="text-sm">👷 Assigned to <b>{issue.resolver_name}</b></p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  <Dialog open={reviewModalOpen} onOpenChange={setReviewModalOpen}>
+      <DialogContent>
+          <DialogHeader>
+              <DialogTitle className="font-display text-2xl">Rate the Resolution</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+              <div>
+                  <p className="text-sm text-muted-foreground mb-2">How did the volunteer do?</p>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map(n => (
+                        <button key={n} onClick={() => setRating(n)}>
+                            <Star className={`w-8 h-8 ${n <= rating ? "fill-accent text-accent" : "text-muted-foreground"}`} />
+                        </button>
+                    ))}
+                  </div>
+              </div>
+              <textarea 
+                  className="w-full min-h-[100px] p-3 rounded-xl border border-border bg-background"
+                  placeholder="Share your thoughts..."
+                  value={reviewText}
+                  onChange={e => setReviewText(e.target.value)}
+              />
+              <Button 
+                  className="w-full" 
+                  disabled={rating === 0 || !reviewText || submitReview.isPending}
+                  onClick={() => submitReview.mutate()}
+              >
+                  {submitReview.isPending ? "Submitting..." : "Submit Review"}
+              </Button>
+          </div>
+      </DialogContent>
+  </Dialog>
+  </>
+)};
+
 
 export default function ActivityLog() {
   const [tab, setTab] = useState("history");
-  const sorted = [...MOCK_ISSUES].sort((a,b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+  const { token } = useAuthStore();
+
+  const { data: rawIssues = [], isLoading } = useQuery({
+    queryKey: ["issues", "citizen", token?.user_id],
+    queryFn: () => issuesApi.list({ reporter_id: token?.user_id }),
+    enabled: !!token?.user_id,
+  });
+
+  // Normalise API Issue shape to the local Issue type used by IssueCard
+  const sorted = [...rawIssues].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
   const ongoing = sorted.filter(i => i.status !== "resolved");
   const resolved = sorted.filter(i => i.status === "resolved");
 
@@ -71,7 +193,12 @@ export default function ActivityLog() {
       <h1 className="font-display text-4xl mb-2">Activity log</h1>
       <p className="text-muted-foreground mb-6">Every issue you've raised, in one timeline.</p>
 
-      <Tabs value={tab} onValueChange={setTab}>
+{isLoading && (
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-2xl" />)}
+        </div>
+      )}
+      <Tabs value={tab} onValueChange={setTab} className={isLoading ? "hidden" : ""}>
         <TabsList className="mb-6">
           <TabsTrigger value="history">Issue history</TabsTrigger>
           <TabsTrigger value="ongoing">Ongoing ({ongoing.length})</TabsTrigger>

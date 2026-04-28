@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/store/AuthStore";
 import { usersApi } from "@/services/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { SKILLS } from "@/lib/mockData";
+import { SKILLS } from "@/lib/skillInference";
 import { toast } from "sonner";
 import {
   User,

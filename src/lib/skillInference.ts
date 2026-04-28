@@ -2,7 +2,7 @@
 // Context-aware skill inference engine for civic issues.
 // Scores from: image filename hints, title, description, category.
 
-export const ALL_SKILLS = [
+export const SKILLS = [
   "Road Repair",
   "Construction",
   "Civil Engineering",
@@ -25,7 +25,7 @@ export const ALL_SKILLS = [
   "First Aid",
 ] as const;
 
-export type Skill = (typeof ALL_SKILLS)[number];
+export type Skill = (typeof SKILLS)[number];
 
 // ── Rule definitions ─────────────────────────────────────────────────────────
 // Each rule carries keywords (matched against combined text) and a weight per hit.

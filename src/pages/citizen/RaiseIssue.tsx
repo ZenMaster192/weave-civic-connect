@@ -12,7 +12,7 @@ import {
   X, Loader2, Navigation, AlertCircle, Brain, Eye, Send
 } from "lucide-react";
 import { toast } from "sonner";
-import { inferSkills, CATEGORIES, ALL_SKILLS, type IssueCategory } from "@/lib/skillInference";
+import { inferSkills, CATEGORIES, SKILLS, type IssueCategory } from "@/lib/skillInference";
 import { issuesApi, geocodeApi } from "@/services/api";
 import MapPicker, { type LocationResult } from "@/components/MapPicker";
 
@@ -79,7 +79,7 @@ export default function RaiseIssue() {
       const inferred = inferSkills(title, description, category, photo?.name);
       setSkills((prev) => {
         // Merge: keep any user-added skills not in new inference, prepend new inferred
-        const userAdded = prev.filter((s) => !ALL_SKILLS.includes(s as any));
+        const userAdded = prev.filter((s) => !SKILLS.includes(s as any));
         return [...new Set([...inferred, ...userAdded])];
       });
     }
@@ -511,7 +511,7 @@ export default function RaiseIssue() {
                     }}
                   >
                     <option value="">+ Add a skill from list…</option>
-                    {ALL_SKILLS.filter((s) => !skills.includes(s)).map((s) => (
+                    {SKILLS.filter((s) => !skills.includes(s)).map((s) => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
