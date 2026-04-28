@@ -6,3 +6,4 @@ passlib
 PyJWT
 python-multipart
 psycopg2-binary
+jinja2>=3.0.0
