@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+passlib
+PyJWT
+python-multipart
+psycopg2-binary
