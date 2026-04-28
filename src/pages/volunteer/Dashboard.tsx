@@ -46,11 +46,39 @@ export default function VolunteerDashboard() {
   const navigate = useNavigate();
   const [activeDispatchId, setActiveDispatchId] = useState<number | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<typeof matched[0] | null>(null);
-
+  
   const { data: me } = useQuery({
     queryKey: ["users", "me"],
     queryFn: usersApi.me,
   });
+
+  // Automatically save coords to DB if they are missing
+  const updateLocationMutation = useMutation({
+    mutationFn: (coords: { latitude: number; longitude: number }) => usersApi.updateMe(coords),
+    onSuccess: () => {
+      // Force the UI and match algorithm to refresh with the new DB data
+      queryClient.invalidateQueries({ queryKey: ["users", "me"] });
+      queryClient.invalidateQueries({ queryKey: ["match", "nearby"] });
+    }
+  });
+
+  useEffect(() => {
+    // Only ask for GPS if the user is loaded AND their DB latitude is NULL
+    if (me && !me.latitude && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          updateLocationMutation.mutate({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+        },
+        (err) => console.log("GPS denied or unavailable", err)
+      );
+    }
+  }, [me?.id, me?.latitude]);
+
+  const resolvedLat = me?.latitude;
+  const resolvedLng = me?.longitude;
 
   const { data: activeIssue, isLoading: activeLoading } = useQuery({
     queryKey: ["volunteer", "active-issue"],
@@ -63,9 +91,13 @@ export default function VolunteerDashboard() {
     refetchInterval: 5000, // Short poll for Uber-ping
   });
 
+const fallbackLat = me?.latitude;
+  const fallbackLng = me?.longitude;
+
   const { data: matched = [] } = useQuery({
-    queryKey: ["match", "nearby"],
-    queryFn: () => matchApi.getNearbyIssues(25, 3),
+    queryKey: ["match", "nearby", fallbackLat, fallbackLng],
+    queryFn: () => matchApi.getNearbyIssues(25, 3, fallbackLat, fallbackLng),
+    enabled: fallbackLat != null && fallbackLng != null,
   });
 
   const acceptMutation = useMutation({

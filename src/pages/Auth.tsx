@@ -59,6 +59,7 @@ export default function Auth() {
   const [loginPassword, setLoginPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [otpVerified, setOtpVerified] = useState(false);
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const { remaining, canResend, reset: resetCooldown } = useResendCooldown(60);
 
   const toggleSkill = (s: string) =>
@@ -100,10 +101,16 @@ export default function Auth() {
     onSuccess: () => {
       setOtpVerified(true);
       toast.success("Email verified! ✓");
+      if (r === "volunteer" && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => {} // silent fail — user can update from profile later
+        );
+      }
       setTimeout(() => setStep("id"), 800);
     },
     onError: (e: Error) => toast.error(e.message),
-  });
+  });      
 
   const resendMutation = useMutation({
     mutationFn: () => authApi.resendOtp(email),
@@ -131,12 +138,18 @@ export default function Auth() {
     verifyOtpMutation.mutate();
   };
 
-  const handleId = (e: React.FormEvent) => {
+const handleId = async (e: React.FormEvent) => {
     e.preventDefault();
+    // If we captured GPS, save it to the volunteer's profile before navigating
+    if (r === "volunteer" && gpsCoords) {
+      try {
+        await usersApi.updateMe({ latitude: gpsCoords.lat, longitude: gpsCoords.lng });
+      } catch (_) { /* non-fatal — they can set it from profile page */ }
+    }
     toast.success("Identity stored. Welcome to Weave!");
     nav(r === "volunteer" ? "/volunteer" : "/citizen");
   };
-
+  
   useEffect(() => {
     if (otp.length === 6 && step === "otp" && !verifyOtpMutation.isPending && !otpVerified) {
       verifyOtpMutation.mutate();

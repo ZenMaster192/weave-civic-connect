@@ -1746,11 +1746,16 @@ def get_matched_issues(
     db: DB,
     radius_km: float = Query(25.0),
     limit: int = Query(20, le=50),
+    lat: Optional[float] = Query(None),
+    lng: Optional[float] = Query(None),
 ):
     if current_user.role != UserRole.VOLUNTEER:
         raise HTTPException(status_code=403, detail="Only volunteers can use matching.")
 
-    if not current_user.latitude or not current_user.longitude:
+    vol_lat = lat if lat is not None else current_user.latitude
+    vol_lng = lng if lng is not None else current_user.longitude
+
+    if vol_lat is None or vol_lng is None:
         raise HTTPException(status_code=400, detail="Update your location in profile settings before using matching.")
 
     open_issues = db.query(IssueORM).filter(IssueORM.status == IssueStatus.OPEN).all()
@@ -1758,7 +1763,7 @@ def get_matched_issues(
 
     for issue in open_issues:
         dist = haversine_km(
-            current_user.latitude, current_user.longitude,
+            vol_lat, vol_lng,
             issue.latitude, issue.longitude,
         )
         if dist > radius_km:
@@ -1772,7 +1777,19 @@ def get_matched_issues(
             )
         )
 
-    results.sort(key=lambda r: (-r.skill_match_score, r.distance_km))
+    def sort_priority(r):
+        # Extract skills safely into sets to check for direct intersections
+        v_skills = set([s.strip().lower() for s in (current_user.skills or "").split(",") if s.strip()])
+        i_skills = set([s.strip().lower() for s in (r.issue.required_skills or "").split(",") if s.strip()])
+        
+        has_match = bool(v_skills & i_skills)
+        
+        # Priority 0: Explicit skill match
+        # Priority 1: No match or fallback
+        # Then sub-sort by the raw score and closest distance
+        return (0 if has_match else 1, -r.skill_match_score, r.distance_km)
+
+    results.sort(key=sort_priority)
     return results[:limit]
 
 

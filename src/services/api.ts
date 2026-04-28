@@ -339,10 +339,12 @@ export const issuesApi = {
 // ── Volunteer matching ─────────────────────────────────────────────────
 
 export const matchApi = {
-  getNearbyIssues: (radiusKm = 25, limit = 20) =>
-    request<VolunteerMatch[]>(
-      `/api/match/issues?radius_km=${radiusKm}&limit=${limit}`
-    ),
+  getNearbyIssues: (radiusKm = 25, limit = 20, lat?: number, lng?: number) =>{
+    const coords = lat != null && lng != null ? `&lat=${lat}&lng=${lng}` : "";
+    return request<VolunteerMatch[]>(
+      `/api/match/issues?radius_km=${radiusKm}&limit=${limit}${coords}`
+    );
+  },
 };
 
 export const dispatchApi = {

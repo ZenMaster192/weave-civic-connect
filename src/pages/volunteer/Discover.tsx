@@ -32,23 +32,46 @@ export default function Discover() {
 
   const { data: me } = useQuery({ queryKey: ["users", "me"], queryFn: usersApi.me });
 
+  const [browserCoords, setBrowserCoords] = useState<[number, number] | null>(null);
+
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setBrowserCoords([pos.coords.latitude, pos.coords.longitude]),
+      () => {}
+    );
+  }, []);
+
+  const fallbackLat = me?.latitude ?? browserCoords?.[0];
+  const fallbackLng = me?.longitude ?? browserCoords?.[1];
+
+  useEffect(() => {
+    if (!me?.latitude && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+          setBrowserCoords(coords);
+        },
+        () => console.log("Location access denied, using fallback.")
+      );
+    }
+  }, [me]);
+
+  const resolvedLat = me?.latitude ?? browserCoords?.[0];
+  const resolvedLng = me?.longitude ?? browserCoords?.[1];
+
   const { data: matches = [], isLoading } = useQuery<VolunteerMatch[]>({
-    queryKey: ["match", "nearby"],
-    queryFn: () => matchApi.getNearbyIssues(25, 20),
+    queryKey: ["match", "nearby", resolvedLat, resolvedLng],
+    queryFn: () => matchApi.getNearbyIssues(25, 20, resolvedLat, resolvedLng),
+    enabled: resolvedLat != null && resolvedLng != null,
   });
 
   useEffect(() => {
     if (selectedMatch) {
       setMapCenter([selectedMatch.issue.latitude, selectedMatch.issue.longitude]);
-    } else if (me?.latitude && me?.longitude) {
-      setMapCenter([me.latitude, me.longitude]);
-    } else {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setMapCenter([pos.coords.latitude, pos.coords.longitude]),
-        () => console.log("Location access denied, using fallback.")
-      );
+    } else if (resolvedLat && resolvedLng) {
+      setMapCenter([resolvedLat, resolvedLng]);
     }
-  }, [selectedMatch, me]);
+  }, [selectedMatch, resolvedLat, resolvedLng]);
 
   const selected = selectedMatch ?? matches[0] ?? null;
 
