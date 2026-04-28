@@ -61,8 +61,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://postgres.pfzqszuwonmrqeokwzub:NBQKwRpr4SWM7lAq@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require"
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./weave.db")
 )
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
